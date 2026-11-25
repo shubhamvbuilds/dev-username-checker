@@ -35,4 +35,6 @@ export interface PlatformMeta {
   signupUrl: string;
   enabled: boolean;
   method: Method;
+  /** Extra caveat shown on `free` rows for this platform. */
+  freeNote?: string;
 }

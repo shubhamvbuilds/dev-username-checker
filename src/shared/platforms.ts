@@ -67,6 +67,7 @@ export const PLATFORMS: Record<PlatformId, PlatformMeta> = {
     signupUrl: 'https://gitlab.com/users/sign_up',
     enabled: true,
     method: 'api',
+    freeNote: 'GitLab hides private groups, so this name may still be taken.',
   },
   huggingface: {
     id: 'huggingface',

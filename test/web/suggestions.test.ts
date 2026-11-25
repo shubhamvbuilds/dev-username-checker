@@ -85,4 +85,62 @@ describe('findSuggestions', () => {
     expect(signals.slice(1).every((s) => s.aborted)).toBe(true);
     expect(got).toEqual([]);
   });
+
+  it('reports failed when every request is a 403 and nothing qualified', async () => {
+    const fetchFn = vi.fn(async () => new Response('{"error":"Verification failed"}', { status: 403 }));
+    const got: Suggestion[] = [];
+    const out = await findSuggestions({ name: 'shubham', platforms: ['github'], fetch: fetchFn, signal: new AbortController().signal, onSuggestion: (s) => got.push(s) });
+    expect(out).toBe('failed');
+    expect(got).toEqual([]);
+  });
+
+  it('reports failed when every fetch throws', async () => {
+    const fetchFn = vi.fn(async () => { throw new TypeError('network'); });
+    const out = await findSuggestions({ name: 'shubham', platforms: ['github'], fetch: fetchFn, signal: new AbortController().signal, onSuggestion: () => {} });
+    expect(out).toBe('failed');
+  });
+
+  it('reports failed with no fetch when a token is required but missing', async () => {
+    const fetchFn = vi.fn(async () => ndjson([]));
+    const out = await findSuggestions({
+      name: 'shubham', platforms: ['github'], fetch: fetchFn, signal: new AbortController().signal,
+      getToken: async () => null, requireToken: true, onSuggestion: () => {},
+    });
+    expect(out).toBe('failed');
+    expect(fetchFn).not.toHaveBeenCalled();
+  });
+
+  it('stays done when some requests failed but one qualified', async () => {
+    const fetchFn = vi.fn(async (url: string) => {
+      const n = nameOf(url);
+      if (n !== 'shubhambuilds') return new Response('{}', { status: 403 });
+      return ndjson([line('github', n, 'free')]);
+    });
+    const got: Suggestion[] = [];
+    const out = await findSuggestions({ name: 'shubham', platforms: ['github'], fetch: fetchFn, signal: new AbortController().signal, onSuggestion: (s) => got.push(s) });
+    expect(out).toBe('done');
+    expect(got.map((s) => s.name)).toEqual(['shubhambuilds']);
+  });
+
+  it('stays done (no variation) when all requests succeed and none qualify', async () => {
+    const { out } = await run(['github'], (n) => [line('github', n, 'taken')]);
+    expect(out).toBe('done');
+  });
+
+  describe('takenOn: free where the typed name was taken', () => {
+    const resp = (n: string) => [line('github', n, 'unknown'), line('reddit', n, 'free')];
+    it('disqualifies a suggestion that is unknown on a platform where the typed name was taken', async () => {
+      const got: Suggestion[] = [];
+      const fetchFn = vi.fn(async (url: string) => ndjson(resp(nameOf(url))));
+      await findSuggestions({ name: 'shubham', platforms: ['github', 'reddit'], takenOn: ['github'], fetch: fetchFn, signal: new AbortController().signal, onSuggestion: (s) => got.push(s) });
+      expect(got).toEqual([]);
+    });
+    it('still qualifies when unknown is only on a platform that was not taken', async () => {
+      const got: Suggestion[] = [];
+      const fetchFn = vi.fn(async (url: string) => ndjson([line('github', nameOf(url), 'free'), line('reddit', nameOf(url), 'unknown')]));
+      await findSuggestions({ name: 'shubham', platforms: ['github', 'reddit'], takenOn: ['github'], fetch: fetchFn, signal: new AbortController().signal, onSuggestion: (s) => got.push(s) });
+      expect(got).toHaveLength(6);
+      expect(got[0].unknown).toEqual(['reddit']);
+    });
+  });
 });

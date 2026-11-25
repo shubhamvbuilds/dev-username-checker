@@ -39,6 +39,7 @@ export function renderRow(r: CheckResult): HTMLElement {
 
   if (r.status === 'free') {
     add(body, el('strong', 'status', 'No account found'), el('span', 'note', RESERVE_NOTE));
+    if (meta?.freeNote) add(body, el('span', 'note', meta.freeNote));
     if (meta) add(body, linkOrText(meta.signupUrl, 'Sign up'));
   } else if (r.status === 'taken') {
     add(body, el('strong', 'status', 'Taken'), linkOrText(r.url, 'View profile'));
@@ -59,7 +60,7 @@ export function renderSuggestion(name: string, unknown: PlatformId[], onCheckX: 
   row.dataset.name = name;
   add(row, el('span', 'platform', name));
   const body = el('span', 'detail');
-  add(body, el('strong', 'status', unknown.length ? 'Free where checked' : 'Free on all selected'));
+  add(body, el('strong', 'status', unknown.length ? 'Free where checked' : 'Free on all checked'));
   if (unknown.length) add(body, el('span', 'note', `Couldn't confirm: ${unknown.map((p) => PLATFORMS[p]?.label ?? p).join(', ')}`));
   if (onCheckX) {
     const slot = el('span', 'x-slot');

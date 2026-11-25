@@ -25,10 +25,12 @@ describe('generateSuggestions', () => {
     for (const n of out) expect(n.length).toBeLessThanOrEqual(15);
   });
 
-  it('adds base + first letter of second part for separated input, deduplicated', () => {
+  it('adds first part + first letter of second part for separated input, deduplicated', () => {
     const out = generateSuggestions('john-doe', ['github'], 20);
-    expect(out).toContain('john-doed');
+    expect(out).toContain('johnd');
+    expect(out).not.toContain('john-doed');
     expect(new Set(out).size).toBe(out.length);
+    expect(generateSuggestions('shubham-verma', ['github'], 20)).toContain('shubhamv');
   });
 
   it('is deterministic', () => {

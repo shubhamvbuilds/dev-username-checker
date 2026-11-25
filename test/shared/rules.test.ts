@@ -14,6 +14,10 @@ describe('validateFor', () => {
     expect(validateFor('x', 'shubhamvbuilds12')).toEqual({ ok: false, rule: expect.stringContaining('15') });
     expect(validateFor('x', 'shubhamvbuilds')).toEqual({ ok: true });
   });
+  it('X needs more than 4 characters', () => {
+    expect(validateFor('x', 'abcd').ok).toBe(false);
+    expect(validateFor('x', 'abcde')).toEqual({ ok: true });
+  });
   it('enforces GitHub charset and hyphen placement', () => {
     expect(validateFor('github', 'a_b').ok).toBe(false);
     expect(validateFor('github', '-abc').ok).toBe(false);

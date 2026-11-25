@@ -1,7 +1,7 @@
 import type { CheckResult } from '../src/shared/types';
 
 const TTL_MS = 60 * 60 * 1000;
-const key = (name: string) => `uc:v1:${name}`;
+const key = (name: string) => `uc:v2:${name}`;
 
 export function localGet(name: string, now: number = Date.now()): CheckResult[] | null {
   try {
@@ -18,7 +18,10 @@ export function localGet(name: string, now: number = Date.now()): CheckResult[] 
 export function localPut(name: string, results: CheckResult[], now: number = Date.now()): void {
   try {
     const keep = results.filter((r) => r.status !== 'unknown');
-    localStorage.setItem(key(name), JSON.stringify({ at: now, results: keep }));
+    // Expire by the oldest stored answer, not by when we happened to write it:
+    // a result served from an older cache must not get a fresh hour here.
+    const at = keep.reduce((min, r) => (typeof r.checkedAt === 'number' ? Math.min(min, r.checkedAt) : min), now);
+    localStorage.setItem(key(name), JSON.stringify({ at, results: keep }));
   } catch {
     // storage unavailable or full: caching is best effort
   }

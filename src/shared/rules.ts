@@ -16,7 +16,8 @@ export interface Rule {
 // Rules marked TODO(verify) are conservative guesses to confirm against the source.
 export const RULES: Record<PlatformId, Rule> = {
   // https://help.x.com/en/managing-your-account/x-username-rules
-  x: { min: 4, max: 15, pattern: /^[a-z0-9_]+$/, describe: '4 to 15 characters: letters, digits, underscore' },
+  // X help: usernames must be longer than 4 characters
+  x: { min: 5, max: 15, pattern: /^[a-z0-9_]+$/, describe: '5 to 15 characters: letters, digits, underscore' },
   // https://docs.github.com/en/enterprise-cloud@latest/admin/managing-iam/iam-configuration-reference/username-considerations-for-external-authentication
   github: {
     min: 1,

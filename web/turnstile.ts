@@ -19,8 +19,10 @@ function load(): Promise<TurnstileApi | null> {
     const s = document.createElement('script');
     s.src = SRC;
     s.async = true;
-    s.onload = () => resolve(window.turnstile ?? null);
-    s.onerror = () => resolve(null);
+    // A failed load must not be memoised, or every later attempt would fail too.
+    const fail = () => { loading = null; resolve(null); };
+    s.onload = () => (window.turnstile ? resolve(window.turnstile) : fail());
+    s.onerror = fail;
     document.head.appendChild(s);
   });
   return loading;

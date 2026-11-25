@@ -7,7 +7,7 @@ export const PAUSED_MSG = 'Suggestions paused due to high traffic';
 export const RATE_LIMIT_MSG = 'Too many searches, try again in a few minutes';
 
 export type FetchFn = (url: string, init?: { signal?: AbortSignal; headers?: Record<string, string> }) => Promise<Response>;
-export type SuggestionOutcome = 'done' | 'paused' | 'rate-limited';
+export type SuggestionOutcome = 'done' | 'paused' | 'rate-limited' | 'failed';
 
 export interface Suggestion {
   name: string;
@@ -27,6 +27,10 @@ export interface FindOptions {
   fetch: FetchFn;
   /** Resolves a single-use Turnstile token per suggestion request; null/undefined sends no header. */
   getToken?: () => Promise<string | null>;
+  /** True when Turnstile is configured: a missing token then counts as a failed request. */
+  requireToken?: boolean;
+  /** Platforms where the typed name was taken: a suggestion must be `free` (not unknown) on each. */
+  takenOn?: PlatformId[];
   signal: AbortSignal;
   /** Called once per suggestion, only after its stream finished and it is free everywhere (X excluded). */
   onSuggestion: (s: Suggestion) => void;
@@ -36,12 +40,13 @@ export interface FindOptions {
  * Returns the unknown platforms if the lines qualify, else null. Qualifies when every
  * requested platform has exactly one line for this name, none is taken/invalid, and at least one is free.
  */
-function qualify(name: string, checked: PlatformId[], results: CheckResult[]): PlatformId[] | null {
+function qualify(name: string, checked: PlatformId[], results: CheckResult[], mustBeFree: PlatformId[]): PlatformId[] | null {
   if (results.length !== checked.length) return null;
   const seen = new Set<PlatformId>();
   for (const r of results) {
     if (r.name !== name || !checked.includes(r.platform) || seen.has(r.platform)) return null;
     if (r.status !== 'free' && r.status !== 'unknown') return null;
+    if (r.status === 'unknown' && mustBeFree.includes(r.platform)) return null;
     seen.add(r.platform);
   }
   if (!results.some((r) => r.status === 'free')) return null;
@@ -59,12 +64,16 @@ export async function findSuggestions(opts: FindOptions): Promise<SuggestionOutc
   if (opts.signal.aborted) return 'done';
   opts.signal.addEventListener('abort', stop);
   let outcome: SuggestionOutcome = 'done';
+  const mustBeFree = (opts.takenOn ?? []).filter((p) => checked.includes(p));
+  let failed = false;
+  let qualified = 0;
 
   await Promise.all(names.map(async (name) => {
     try {
       const url = `/api/check?name=${encodeURIComponent(name)}&platforms=${encodeURIComponent(checked.join(','))}&suggestion=1`;
       const token = opts.getToken ? await opts.getToken() : null;
       if (inner.signal.aborted) return;
+      if (!token && opts.requireToken) { failed = true; return; }
       const res = await opts.fetch(url, {
         signal: inner.signal,
         ...(token ? { headers: { 'cf-turnstile-response': token } } : {}),
@@ -74,16 +83,21 @@ export async function findSuggestions(opts: FindOptions): Promise<SuggestionOutc
         inner.abort();
         return;
       }
-      if (!res.ok || !res.body) return;
+      if (!res.ok || !res.body) { failed = true; return; }
       const results: CheckResult[] = [];
       await parseNdjsonStream(res.body, (r) => results.push(r));
       if (inner.signal.aborted) return;
-      const q = qualify(name, checked, results);
-      if (q) opts.onSuggestion({ name, results, unknown: q });
-    } catch { /* aborted or network failure: this suggestion is simply dropped */ }
+      const q = qualify(name, checked, results, mustBeFree);
+      if (q) { qualified++; opts.onSuggestion({ name, results, unknown: q }); }
+    } catch {
+      // Aborted (superseded or stopped): not a failure. Anything else is.
+      if (!inner.signal.aborted) failed = true;
+    }
   }));
 
   opts.signal.removeEventListener('abort', stop);
+  // Doubt is not "no variation is free": if requests failed and none qualified, say so.
+  if (outcome === 'done' && failed && qualified === 0) return 'failed';
   return outcome;
 }
 

@@ -17,7 +17,7 @@ describe('main search orchestration', () => {
     const cached: CheckResult[] = ids.map((platform) => ({
       platform, name: 'cachedname', status: 'free', url: 'https://e.test/', method: 'api', checkedAt: 1,
     }));
-    localStorage.setItem('uc:v1:cachedname', JSON.stringify({ at: Date.now(), results: cached }));
+    localStorage.setItem('uc:v2:cachedname', JSON.stringify({ at: Date.now(), results: cached }));
 
     await import('../../web/main');
     const input = document.getElementById('name') as HTMLInputElement;
@@ -175,5 +175,50 @@ describe('suggestions wiring', () => {
     await tick();
     expect(document.getElementById('suggestions')!.textContent).toContain('Suggestions paused due to high traffic');
     expect(document.getElementById('suggestions-title')!.hidden).toBe(true);
+  });
+
+  it('shows "Couldn\'t check suggestions. Try again." and hides the heading when every suggestion request fails', async () => {
+    localStorage.setItem('uc:platforms', JSON.stringify(['github']));
+    vi.stubGlobal('fetch', vi.fn(async (url: string) => {
+      if (url.includes('suggestion=1')) return new Response('{"error":"Verification failed"}', { status: 403 });
+      const name = new URL(url, 'http://l').searchParams.get('name')!;
+      return ndjson([res('github', name, 'taken')]);
+    }));
+    await import('../../web/main');
+    submit('alpha');
+    await tick();
+    expect(document.getElementById('suggestions-title')!.hidden).toBe(true);
+    expect(document.getElementById('suggestions-msg')!.textContent).toBe("Couldn't check suggestions. Try again.");
+    expect(document.getElementById('suggestions-msg')!.textContent).not.toContain('No variation');
+  });
+
+  it('says no variation fits the rules when generateSuggestions returns nothing, with no suggestion requests', async () => {
+    localStorage.setItem('uc:platforms', JSON.stringify(['github', 'x']));
+    const fetchMock = vi.fn(async (url: string) => {
+      const name = new URL(url, 'http://l').searchParams.get('name')!;
+      return ndjson([res('github', name, 'taken'), res('x', name, 'unknown', 'link-only')]);
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    await import('../../web/main');
+    submit('abcdefghijklmno'); // 15 chars: every variation exceeds X's 15 character limit
+    await tick();
+    expect(fetchMock.mock.calls.some(([u]) => String(u).includes('suggestion=1'))).toBe(false);
+    expect(document.getElementById('suggestions-title')!.hidden).toBe(true);
+    expect(document.getElementById('suggestions-msg')!.textContent).toBe("No variation fits every selected platform's rules.");
+  });
+
+  it('drops a suggestion that is unknown where the typed name was taken', async () => {
+    localStorage.setItem('uc:platforms', JSON.stringify(['github', 'reddit']));
+    vi.stubGlobal('fetch', vi.fn(async (url: string) => {
+      const p = new URL(url, 'http://l').searchParams;
+      const name = p.get('name')!;
+      if (p.get('suggestion')) return ndjson([res('github', name, 'unknown'), res('reddit', name, 'free')]);
+      return ndjson([res('github', name, 'taken'), res('reddit', name, 'free')]);
+    }));
+    await import('../../web/main');
+    submit('alpha');
+    await tick();
+    expect(document.querySelectorAll('#suggestion-list li').length).toBe(0);
+    expect(document.getElementById('suggestions-msg')!.textContent).toContain('No variation is free');
   });
 });

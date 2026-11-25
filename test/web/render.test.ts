@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { renderRow } from '../../web/render';
+import { renderRow, renderSuggestion } from '../../web/render';
 import { PLATFORMS } from '../../src/shared/platforms';
 import type { CheckResult } from '../../src/shared/types';
 
@@ -65,5 +65,25 @@ describe('renderRow', () => {
     const row = renderRow({ ...base, status: 'taken', url: 'javascript:alert(1)' });
     expect(row.querySelector('a')).toBeNull();
     expect(row.textContent).toContain('javascript:alert(1)');
+  });
+
+  it('free: shows the platform freeNote in addition to the general note (GitLab private groups)', () => {
+    const row = renderRow({ ...base, platform: 'gitlab', url: 'https://gitlab.com/abc' });
+    expect(row.textContent).toContain('The platform may still reserve this name.');
+    expect(row.textContent).toContain('GitLab hides private groups, so this name may still be taken.');
+    expect(renderRow(base).textContent).not.toContain('private groups');
+  });
+
+  it('freeNote only appears on free rows', () => {
+    const row = renderRow({ ...base, platform: 'gitlab', status: 'taken', url: 'https://gitlab.com/abc' });
+    expect(row.textContent).not.toContain('private groups');
+  });
+});
+
+describe('renderSuggestion', () => {
+  it('says "Free on all checked", never "all selected"', () => {
+    const row = renderSuggestion('abc', [], null);
+    expect(row.textContent).toContain('Free on all checked');
+    expect(row.textContent).not.toContain('all selected');
   });
 });

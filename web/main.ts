@@ -3,8 +3,9 @@ import { isSearchable, normalizeName, validateFor } from '../src/shared/rules';
 import type { CheckResult, PlatformId } from '../src/shared/types';
 import { localGet, localPut } from './local-cache';
 import { add, renderRow, renderSuggestion, renderXResult } from './render';
-import { getToken } from './turnstile';
+import { getToken, turnstileEnabled } from './turnstile';
 import { parseNdjsonStream } from './stream';
+import { generateSuggestions } from '../src/shared/suggest';
 import { checkablePlatforms, checkOnX, findSuggestions, PAUSED_MSG, RATE_LIMIT_MSG } from './suggestions';
 
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
@@ -24,6 +25,8 @@ const suggestionMsg = $('suggestions-msg');
 const suggestionTitle = $('suggestions-title');
 const suggestionNote = $('suggestions-note');
 const NO_VARIATION_MSG = 'No variation is free on every checked platform. Try a different name.';
+const NO_FIT_MSG = "No variation fits every selected platform's rules.";
+const FAILED_MSG = "Couldn't check suggestions. Try again.";
 
 const PLATFORM_KEY = 'uc:platforms';
 const enabledIds = (Object.keys(PLATFORMS) as PlatformId[]).filter((id) => PLATFORMS[id].enabled);
@@ -104,10 +107,20 @@ async function runSuggestions(name: string, results: CheckResult[], my: number, 
       suggestionNote.hidden = false;
     }
   };
+  const showMessage = (msg: string) => {
+    showSection();
+    suggestionTitle.hidden = true;
+    suggestionList.replaceChildren();
+    suggestionMsg.textContent = msg;
+    suggestionMsg.hidden = false;
+  };
+  if (generateSuggestions(name, ids).length === 0) { showMessage(NO_FIT_MSG); return; }
   const outcome = await findSuggestions({
     name, platforms: ids, signal,
     fetch: (u, init) => fetch(u, init),
     getToken,
+    requireToken: turnstileEnabled,
+    takenOn: results.filter((r) => r.status === 'taken' && selected.has(r.platform)).map((r) => r.platform),
     onSuggestion: (s) => {
       if (my !== runId || signal.aborted) return;
       count++;
@@ -116,6 +129,13 @@ async function runSuggestions(name: string, results: CheckResult[], my: number, 
       add(suggestionList, renderSuggestion(s.name, s.unknown, selected.has('x') ? (slot) => {
         void checkOnX(s.name, (u, init) => fetch(u, init), signal).then((r) => {
           if (signal.aborted) return;
+          const btn = slot.querySelector('button');
+          if (!r && btn) {
+            // Couldn't reach the checker: let the user retry.
+            btn.disabled = false;
+            slot.replaceChildren(btn, renderXResult(s.name, null));
+            return;
+          }
           slot.replaceChildren(renderXResult(s.name, r));
         });
       } : null));
@@ -123,11 +143,12 @@ async function runSuggestions(name: string, results: CheckResult[], my: number, 
   });
   if (my !== runId || signal.aborted) return;
   if (outcome !== 'done' || count === 0) {
-    showSection();
-    suggestionTitle.hidden = true;
-    suggestionList.replaceChildren();
-    suggestionMsg.textContent = outcome === 'paused' ? PAUSED_MSG : outcome === 'rate-limited' ? RATE_LIMIT_MSG : NO_VARIATION_MSG;
-    suggestionMsg.hidden = false;
+    showMessage(
+      outcome === 'paused' ? PAUSED_MSG
+        : outcome === 'rate-limited' ? RATE_LIMIT_MSG
+        : outcome === 'failed' ? FAILED_MSG
+        : NO_VARIATION_MSG,
+    );
   }
 }
 
