@@ -2,8 +2,9 @@ import { PLATFORMS } from '../src/shared/platforms';
 import { isSearchable, normalizeName, validateFor } from '../src/shared/rules';
 import type { CheckResult, PlatformId } from '../src/shared/types';
 import { localGet, localPut } from './local-cache';
-import { add, renderRow } from './render';
+import { add, renderRow, renderSuggestion, renderXResult } from './render';
 import { parseNdjsonStream } from './stream';
+import { checkOnX, findSuggestions, PAUSED_MSG, RATE_LIMIT_MSG } from './suggestions';
 
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
 const form = $<HTMLFormElement>('form');
@@ -16,6 +17,9 @@ const resultName = $('result-name');
 const copyBtn = $<HTMLButtonElement>('copy');
 const listEl = $('platform-list');
 const summaryEl = $('platforms-summary');
+const suggestionsEl = $('suggestions');
+const suggestionList = $('suggestion-list');
+const suggestionMsg = $('suggestions-msg');
 
 const PLATFORM_KEY = 'uc:platforms';
 const enabledIds = (Object.keys(PLATFORMS) as PlatformId[]).filter((id) => PLATFORMS[id].enabled);
@@ -74,6 +78,39 @@ function setRow(r: CheckResult): void {
 }
 
 let runId = 0;
+let controller: AbortController | null = null;
+
+function resetSuggestions(): void {
+  suggestionList.replaceChildren();
+  suggestionMsg.hidden = true;
+  suggestionsEl.hidden = true;
+}
+
+async function runSuggestions(name: string, results: CheckResult[], my: number, signal: AbortSignal): Promise<void> {
+  const ids = [...selected];
+  if (!results.some((r) => r.status === 'taken' && selected.has(r.platform))) return;
+  const outcome = await findSuggestions({
+    name, platforms: ids, signal,
+    fetch: (u, init) => fetch(u, init),
+    onSuggestion: (s) => {
+      if (my !== runId || signal.aborted) return;
+      suggestionsEl.hidden = false;
+      add(suggestionList, renderSuggestion(s.name, selected.has('x') ? (slot) => {
+        void checkOnX(s.name, (u, init) => fetch(u, init), signal).then((r) => {
+          if (signal.aborted) return;
+          slot.replaceChildren(renderXResult(s.name, r));
+        });
+      } : null));
+    },
+  });
+  if (my !== runId || signal.aborted) return;
+  if (outcome !== 'done') {
+    suggestionsEl.hidden = false;
+    suggestionList.replaceChildren();
+    suggestionMsg.textContent = outcome === 'paused' ? PAUSED_MSG : RATE_LIMIT_MSG;
+    suggestionMsg.hidden = false;
+  }
+}
 
 async function run(raw: string): Promise<void> {
   const name = normalizeName(raw);
@@ -83,6 +120,10 @@ async function run(raw: string): Promise<void> {
   errorEl.hidden = true;
   const my = ++runId;
   goBtn.disabled = false; // a superseded run no longer owns the button
+  controller?.abort();
+  controller = new AbortController();
+  const signal = controller.signal;
+  resetSuggestions();
 
   rowsEl.replaceChildren();
   resultName.textContent = name;
@@ -101,17 +142,21 @@ async function run(raw: string): Promise<void> {
     const hit = cached.find((c) => c.platform === id);
     if (hit) { setRow(hit); have.push(hit); } else toRequest.push(id);
   }
-  if (toRequest.length === 0) return;
+  if (toRequest.length === 0) {
+    await runSuggestions(name, have, my, signal);
+    return;
+  }
 
   goBtn.disabled = true;
   const fresh: CheckResult[] = [];
+  let finished = false;
   try {
     const url = `/api/check?name=${encodeURIComponent(name)}&platforms=${toRequest.join(',')}`;
-    const res = await fetch(url);
+    const res = await fetch(url, { signal });
     if (!res.ok || !res.body) {
       let msg = "Couldn't reach the checker. Try again.";
       try { const j = (await res.json()) as { error?: unknown }; if (j && typeof j.error === 'string') msg = j.error; } catch { /* keep default */ }
-      if (my === runId) showError(msg);
+      if (my === runId && !signal.aborted) showError(msg);
       return;
     }
     await parseNdjsonStream(res.body, (r) => {
@@ -119,11 +164,13 @@ async function run(raw: string): Promise<void> {
       if (my === runId) setRow(r);
     });
     localPut(name, [...have, ...fresh]);
+    finished = true;
   } catch {
-    if (my === runId) showError("Couldn't reach the checker. Try again.");
+    if (my === runId && !signal.aborted) showError("Couldn't reach the checker. Try again.");
   } finally {
     if (my === runId) goBtn.disabled = false;
   }
+  if (finished && my === runId) await runSuggestions(name, [...have, ...fresh], my, signal);
 }
 
 form.addEventListener('submit', (e) => { e.preventDefault(); void run(input.value); });

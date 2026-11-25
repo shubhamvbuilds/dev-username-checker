@@ -33,3 +33,99 @@ describe('main search orchestration', () => {
     expect(go.disabled).toBe(false);
   });
 });
+
+describe('suggestions wiring', () => {
+  const ndjson = (rs: CheckResult[]) => new Response(rs.map((r) => JSON.stringify(r)).join('\n') + '\n');
+  const res = (platform: PlatformId, name: string, status: CheckResult['status'], method: CheckResult['method'] = 'api'): CheckResult =>
+    ({ platform, name, status, url: 'https://e.test/', method, checkedAt: 1 });
+
+  beforeEach(() => {
+    vi.resetModules();
+    localStorage.clear();
+    localStorage.setItem('uc:platforms', JSON.stringify(['github', 'x']));
+    const html = readFileSync('web/index.html', 'utf8');
+    document.body.innerHTML = /<body>([\s\S]*)<\/body>/.exec(html)![1].replace(/<script[\s\S]*?<\/script>/, '');
+  });
+
+  const submit = (name: string) => {
+    (document.getElementById('name') as HTMLInputElement).value = name;
+    document.getElementById('form')!.dispatchEvent(new Event('submit', { cancelable: true }));
+  };
+  const tick = () => new Promise((r) => setTimeout(r, 20));
+
+  it('aborts search A fetches (main and suggestions) when search B starts, and renders nothing from A', async () => {
+    const calls: { url: string; signal: AbortSignal }[] = [];
+    vi.stubGlobal('fetch', vi.fn((url: string, init?: { signal?: AbortSignal }) => {
+      calls.push({ url, signal: init!.signal! });
+      const name = new URL(url, 'http://l').searchParams.get('name')!;
+      if (!url.includes('suggestion=1') && name === 'alpha') return Promise.resolve(ndjson([res('github', 'alpha', 'taken')]));
+      return new Promise<Response>((_, rej) => init!.signal!.addEventListener('abort', () => rej(new DOMException('x', 'AbortError'))));
+    }));
+    await import('../../web/main');
+    submit('alpha');
+    await tick();
+    const aCalls = calls.filter((c) => c.url.includes('suggestion=1'));
+    expect(aCalls.length).toBe(6);
+    expect(aCalls.every((c) => !c.signal.aborted)).toBe(true);
+
+    submit('beta');
+    await tick();
+    expect(calls.filter((c) => c.url.includes('name=alpha')).every((c) => c.signal.aborted)).toBe(true);
+    expect(document.querySelectorAll('#suggestion-list li').length).toBe(0);
+    expect((document.getElementById('error') as HTMLElement).hidden).toBe(true);
+  });
+
+  it('shows qualifying suggestions with an X control, and a plain link when X is link-only', async () => {
+    vi.stubGlobal('fetch', vi.fn(async (url: string) => {
+      const p = new URL(url, 'http://l').searchParams;
+      const name = p.get('name')!;
+      if (p.get('platforms') === 'x') return ndjson([res('x', name, 'unknown', 'link-only')]);
+      if (p.get('suggestion') === '1') return ndjson([res('github', name, 'free')]);
+      return ndjson([res('github', name, 'taken'), res('x', name, 'unknown', 'link-only')]);
+    }));
+    await import('../../web/main');
+    submit('alpha');
+    await tick();
+    const items = document.querySelectorAll('#suggestion-list li');
+    expect(items.length).toBe(6);
+    const btn = items[0].querySelector('button') as HTMLButtonElement;
+    expect(btn.textContent).toBe('X: check →');
+    btn.click();
+    await tick();
+    const a = items[0].querySelector('a') as HTMLAnchorElement;
+    expect(a.textContent).toBe('Check on X →');
+    expect(a.href).toBe(`https://x.com/${items[0].getAttribute('data-name')}`);
+  });
+
+  it('does not run suggestions when nothing is taken, and hides the X control when X is not selected', async () => {
+    localStorage.setItem('uc:platforms', JSON.stringify(['github']));
+    const fetchMock = vi.fn(async (url: string) => {
+      const p = new URL(url, 'http://l').searchParams;
+      const name = p.get('name')!;
+      if (name === 'alpha') return ndjson([res('github', name, 'free')]);
+      return ndjson([res('github', name, p.get('suggestion') ? 'free' : 'taken')]);
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    await import('../../web/main');
+    submit('alpha');
+    await tick();
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    submit('beta');
+    await tick();
+    const items = document.querySelectorAll('#suggestion-list li');
+    expect(items.length).toBe(6);
+    expect(items[0].querySelector('button')).toBeNull();
+  });
+
+  it('shows the paused and rate-limit messages', async () => {
+    vi.stubGlobal('fetch', vi.fn(async (url: string) => {
+      if (url.includes('suggestion=1')) return new Response('{"error":"x"}', { status: 503 });
+      const name = new URL(url, 'http://l').searchParams.get('name')!;
+      return ndjson([res('github', name, 'taken')]);
+    }));
+    await import('../../web/main');
+    submit('alpha');
+    await tick();
+    expect(document.getElementById('suggestions')!.textContent).toContain('Suggestions paused due to high traffic');
+  });
+});
