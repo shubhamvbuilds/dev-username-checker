@@ -1,8 +1,10 @@
+import '@fontsource-variable/geist';
+import '@fontsource-variable/geist-mono';
 import { PLATFORMS } from '../src/shared/platforms';
 import { isSearchable, normalizeName, validateFor } from '../src/shared/rules';
 import type { CheckResult, PlatformId } from '../src/shared/types';
 import { localGet, localPut } from './local-cache';
-import { add, renderRow, renderSuggestion, renderXResult } from './render';
+import { add, renderPlaceholder, renderRow, renderSuggestion, renderXResult } from './render';
 import { getToken, turnstileEnabled } from './turnstile';
 import { parseNdjsonStream } from './stream';
 import { generateSuggestions } from '../src/shared/suggest';
@@ -28,8 +30,16 @@ const NO_VARIATION_MSG = 'No variation is free on every checked platform. Try a 
 const NO_FIT_MSG = "No variation fits every selected platform's rules.";
 const FAILED_MSG = "Couldn't check suggestions. Try again.";
 
+const meterEl = $('meter');
+const summaryLine = $('summary');
+
 const PLATFORM_KEY = 'uc:platforms';
-const enabledIds = (Object.keys(PLATFORMS) as PlatformId[]).filter((id) => PLATFORMS[id].enabled);
+// Checked platforms first, "check it yourself" platforms last (X has no checker yet, so it sits with them);
+// rows keep this order while results stream in.
+const manual = (id: PlatformId) => Number(id === 'x' || PLATFORMS[id].method === 'link-only');
+const enabledIds = (Object.keys(PLATFORMS) as PlatformId[])
+  .filter((id) => PLATFORMS[id].enabled)
+  .sort((a, b) => manual(a) - manual(b));
 
 function loadSelected(): Set<PlatformId> {
   try {
@@ -54,12 +64,13 @@ function saveSelected(): void {
 function updateSummary(): void {
   summaryEl.textContent =
     selected.size === enabledIds.length
-      ? `Platforms: all ${enabledIds.length} (edit)`
-      : `Platforms: ${selected.size} of ${enabledIds.length} (edit)`;
+      ? `Checking all ${enabledIds.length} platforms`
+      : `Checking ${selected.size} of ${enabledIds.length} platforms`;
 }
 
 for (const id of enabledIds) {
   const label = document.createElement('label');
+  label.className = 'chip';
   const cb = document.createElement('input');
   cb.type = 'checkbox';
   cb.checked = selected.has(id);
@@ -67,8 +78,11 @@ for (const id of enabledIds) {
     if (cb.checked) selected.add(id); else selected.delete(id);
     saveSelected();
     updateSummary();
+    if (mode === 'preview') showPreview(input.value);
   });
-  add(label, cb, ` ${PLATFORMS[id].label}`);
+  const text = document.createElement('span');
+  text.textContent = PLATFORMS[id].label;
+  add(label, cb, text);
   add(listEl, label);
 }
 updateSummary();
@@ -78,10 +92,57 @@ function showError(msg: string): void {
   errorEl.hidden = false;
 }
 
+const orderedSelected = (): PlatformId[] => enabledIds.filter((id) => selected.has(id));
+
+/** Status counts drawn as one segment per platform, plus a one-line summary. */
+function updateMeter(): void {
+  const rows = [...rowsEl.children] as HTMLElement[];
+  const kinds = rows.map((r) => (['free', 'taken', 'unknown', 'invalid', 'pending'].find((k) => r.classList.contains(`row-${k}`)) ?? 'idle'));
+  meterEl.replaceChildren(...kinds.map((k) => {
+    const s = document.createElement('span');
+    s.className = `seg seg-${k}`;
+    return s;
+  }));
+  const n = (k: string) => kinds.filter((x) => x === k).length;
+  if (kinds.every((k) => k === 'idle')) {
+    summaryLine.textContent = input.value.trim()
+      ? `${kinds.length} profile links · press Enter to check`
+      : 'Type a name to see your profile links';
+    return;
+  }
+  summaryLine.replaceChildren();
+  const parts: [number, string, string][] = [
+    [n('free'), 'free', 's-free'],
+    [n('taken'), 'taken', 's-taken'],
+    [n('unknown'), 'to check yourself', ''],
+    [n('invalid'), 'not allowed', ''],
+    [n('pending'), 'checking', ''],
+  ];
+  parts.filter(([c]) => c > 0).forEach(([c, label, cls], i) => {
+    if (i > 0) add(summaryLine, ' · ');
+    const b = document.createElement('b');
+    if (cls) b.className = cls;
+    b.textContent = String(c);
+    add(summaryLine, b, ` ${label}`);
+  });
+}
+
 function setRow(r: CheckResult): void {
   const next = renderRow(r);
   const old = rowsEl.querySelector(`[data-platform="${r.platform}"]`);
   if (old) old.replaceWith(next); else add(rowsEl, next);
+  updateMeter();
+}
+
+let mode: 'preview' | 'results' = 'preview';
+
+/** Before a search: show the profile URLs the typed name would have, with no status. */
+function showPreview(raw: string): void {
+  mode = 'preview';
+  const name = normalizeName(raw) || 'yourname';
+  resultName.textContent = name;
+  rowsEl.replaceChildren(...orderedSelected().map((id) => renderPlaceholder(id, name, 'idle')));
+  updateMeter();
 }
 
 let runId = 0;
@@ -120,7 +181,10 @@ async function runSuggestions(name: string, results: CheckResult[], my: number, 
     fetch: (u, init) => fetch(u, init),
     getToken,
     requireToken: turnstileEnabled,
-    takenOn: results.filter((r) => r.status === 'taken' && selected.has(r.platform)).map((r) => r.platform),
+    // Platforms that can never confirm free can't be required to be free for a suggestion.
+    takenOn: results
+      .filter((r) => r.status === 'taken' && selected.has(r.platform) && !PLATFORMS[r.platform].neverFree)
+      .map((r) => r.platform),
     onSuggestion: (s) => {
       if (my !== runId || signal.aborted) return;
       count++;
@@ -165,15 +229,17 @@ async function run(raw: string): Promise<void> {
   const signal = controller.signal;
   resetSuggestions();
 
-  rowsEl.replaceChildren();
+  mode = 'results';
   resultName.textContent = name;
   resultsEl.hidden = false;
+  // Every selected platform gets a fixed row now; results replace rows in place, so nothing jumps.
+  rowsEl.replaceChildren(...orderedSelected().map((id) => renderPlaceholder(id, name, 'pending')));
+  updateMeter();
 
   const toRequest: PlatformId[] = [];
   const have: CheckResult[] = [];
   const cached = localGet(name) ?? [];
-  for (const id of enabledIds) {
-    if (!selected.has(id)) continue;
+  for (const id of orderedSelected()) {
     const v = validateFor(id, name);
     if (!v.ok) {
       setRow({ platform: id, name, status: 'invalid', reason: v.rule, url: PLATFORMS[id].profileUrl(name), method: 'rules', checkedAt: Date.now() });
@@ -208,12 +274,45 @@ async function run(raw: string): Promise<void> {
   } catch {
     if (my === runId && !signal.aborted) showError("Couldn't reach the checker. Try again.");
   } finally {
-    if (my === runId) goBtn.disabled = false;
+    if (my === runId) {
+      goBtn.disabled = false;
+      // A platform that never answered (error or cut-off stream) stops spinning.
+      for (const row of rowsEl.querySelectorAll<HTMLElement>('.row-pending')) {
+        row.replaceWith(renderPlaceholder(row.dataset.platform as PlatformId, name, 'idle'));
+      }
+      updateMeter();
+    }
   }
   if (finished && my === runId) await runSuggestions(name, [...have, ...fresh], my, signal);
 }
 
 form.addEventListener('submit', (e) => { e.preventDefault(); void run(input.value); });
+
+input.addEventListener('input', () => {
+  errorEl.hidden = true;
+  // Editing the name after a search goes back to the live preview.
+  if (mode === 'results' && normalizeName(input.value) === resultName.textContent) return;
+  controller?.abort();
+  runId++;
+  goBtn.disabled = false;
+  resetSuggestions();
+  showPreview(input.value);
+});
+
+// Clicking a suggested name checks it.
+function pickSuggestion(target: EventTarget | null): void {
+  const nameEl = (target as HTMLElement | null)?.closest?.('.sugg-name');
+  if (!nameEl?.textContent) return;
+  input.value = nameEl.textContent;
+  resultsEl.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  void run(input.value);
+}
+suggestionList.addEventListener('click', (e) => pickSuggestion(e.target));
+suggestionList.addEventListener('keydown', (e) => {
+  if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); pickSuggestion(e.target); }
+});
+
+showPreview(input.value);
 
 copyBtn.addEventListener('click', async () => {
   const text = resultName.textContent ?? '';

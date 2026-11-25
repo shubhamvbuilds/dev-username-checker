@@ -37,4 +37,6 @@ export interface PlatformMeta {
   method: Method;
   /** Extra caveat shown on `free` rows for this platform. */
   freeNote?: string;
+  /** The check can confirm taken but never free (e.g. Hacker News is case-sensitive). */
+  neverFree?: true;
 }

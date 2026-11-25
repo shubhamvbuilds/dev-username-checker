@@ -3,37 +3,77 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Dev Username Checker</title>
-  <meta name="description" content="Check if your username is free on GitHub, X, npm, DEV and more. Free, no signup.">
+  <title>Dev Username Checker — one handle, every dev platform</title>
+  <meta name="description" content="Check if a username is free on GitHub, DEV, YouTube, Bluesky and 10 more developer platforms, and get close variations that are free everywhere. Free, no signup.">
+  <meta name="theme-color" content="#0b0d14" media="(prefers-color-scheme: dark)">
+  <meta name="theme-color" content="#f5f7fa" media="(prefers-color-scheme: light)">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%23f5a524'/%3E%3Ctext x='16' y='22.5' font-family='monospace' font-size='19' font-weight='600' text-anchor='middle' fill='%230b0d14'%3E@%3C/text%3E%3C/svg%3E">
   <link rel="stylesheet" href="./styles.css">
 </head>
 <body>
+  <header class="top">
+    <a class="brand" href="/" aria-label="Dev Username Checker home">
+      <span class="mark" aria-hidden="true">@</span>
+      <span class="wordmark">Dev Username Checker</span>
+    </a>
+    <span class="top-meta">Free · no signup</span>
+  </header>
+
   <main>
-    <h1>Dev Username Checker</h1>
-    <p class="sub">See where your handle is free across developer platforms.</p>
-    <form id="form" autocomplete="off">
-      <input id="name" name="name" type="text" placeholder="yourname" aria-label="Username" autocapitalize="none" spellcheck="false" required>
-      <button type="submit" id="go">Check</button>
-    </form>
-    <p id="error" class="error" role="alert" hidden></p>
-    <details id="platforms">
-      <summary id="platforms-summary">Platforms</summary>
-      <div id="platform-list"></div>
-    </details>
-    <section id="results" hidden>
-      <div class="results-head">
-        <h2 id="result-name"></h2>
-        <button type="button" id="copy">Copy name</button>
-      </div>
-      <ul id="rows"></ul>
+    <section class="hero">
+      <h1>Find one handle that’s free on every dev platform</h1>
+      <p class="sub">Check a username on GitHub, DEV, YouTube, Bluesky and 10 more at once. If it’s taken somewhere, get close variations that are free everywhere we can check.</p>
+
+      <form id="form" class="search" autocomplete="off">
+        <label class="field">
+          <span class="at" aria-hidden="true">@</span>
+          <input id="name" name="name" type="text" placeholder="yourname" aria-label="Username" autocapitalize="none" spellcheck="false" maxlength="39" required>
+        </label>
+        <button type="submit" id="go" class="btn-primary">
+          <span>Check</span>
+          <kbd aria-hidden="true">↵</kbd>
+        </button>
+      </form>
+      <p id="error" class="error" role="alert" hidden></p>
+
+      <details id="platforms" class="platforms">
+        <summary id="platforms-summary">Platforms</summary>
+        <div id="platform-list" class="chips"></div>
+      </details>
     </section>
-    <section id="suggestions" hidden>
-      <h2 id="suggestions-title" hidden>Try these instead</h2>
+
+    <section id="results" class="panel" aria-live="polite">
+      <div class="panel-head">
+        <div class="panel-title">
+          <h2 id="result-name" class="handle">yourname</h2>
+          <p id="summary" class="summary">Type a name to see your profile links</p>
+        </div>
+        <button type="button" id="copy" class="btn-quiet">Copy name</button>
+      </div>
+      <div id="meter" class="meter" aria-hidden="true"></div>
+      <ul id="rows" class="rows"></ul>
+    </section>
+
+    <section id="suggestions" class="suggestions" hidden>
+      <div class="section-head">
+        <h2 id="suggestions-title" hidden>Try these instead</h2>
+      </div>
       <p id="suggestions-msg" class="note" hidden></p>
-      <ul id="suggestion-list"></ul>
+      <ul id="suggestion-list" class="sugg-grid"></ul>
       <p id="suggestions-note" class="note" hidden></p>
     </section>
+
+    <section class="fine">
+      <p><strong>No account found</strong> means the platform’s public profile or API returned nothing for this exact name. A platform can still reserve or block a name, so its signup page has the final word.</p>
+      <p>X, LinkedIn, npm, Hashnode and Peerlist can’t be checked automatically, so they link straight to the page for you to look.</p>
+    </section>
   </main>
+
+  <footer class="foot">
+    <span>Dev Username Checker</span>
+    <span>Results are cached for up to an hour</span>
+  </footer>
+
   <script type="module" src="./main.ts"></script>
 </body>
 </html>

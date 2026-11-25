@@ -100,6 +100,7 @@ export const PLATFORMS: Record<PlatformId, PlatformMeta> = {
     signupUrl: 'https://news.ycombinator.com/login',
     enabled: true,
     method: 'api',
+    neverFree: true, // HN names are case-sensitive and we lowercase, so "not found" is never proof
   },
   peerlist: {
     id: 'peerlist',

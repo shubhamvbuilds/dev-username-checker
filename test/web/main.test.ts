@@ -221,4 +221,18 @@ describe('suggestions wiring', () => {
     expect(document.querySelectorAll('#suggestion-list li').length).toBe(0);
     expect(document.getElementById('suggestions-msg')!.textContent).toContain('No variation is free');
   });
+
+  it('a platform that can never confirm free (Hacker News) does not block suggestions', async () => {
+    localStorage.setItem('uc:platforms', JSON.stringify(['github', 'hackernews']));
+    vi.stubGlobal('fetch', vi.fn(async (url: string) => {
+      const p = new URL(url, 'http://l').searchParams;
+      const name = p.get('name')!;
+      if (p.get('suggestion')) return ndjson([res('github', name, 'free'), res('hackernews', name, 'unknown')]);
+      return ndjson([res('github', name, 'taken'), res('hackernews', name, 'taken')]);
+    }));
+    await import('../../web/main');
+    submit('alpha');
+    await tick();
+    expect(document.querySelectorAll('#suggestion-list li').length).toBeGreaterThan(0);
+  });
 });
