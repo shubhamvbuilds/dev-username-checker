@@ -1,0 +1,17 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "dev-username-checker",
+  "main": "src/worker/index.ts",
+  "compatibility_date": "2026-11-01",
+  "assets": {
+    "directory": "./dist/web"
+  },
+  "d1_databases": [
+    {
+      "binding": "DB",
+      // Placeholder: the owner creates the real database and replaces this id.
+      "database_name": "dev-username-checker",
+      "database_id": "00000000-0000-0000-0000-000000000000"
+    }
+  ]
+}
