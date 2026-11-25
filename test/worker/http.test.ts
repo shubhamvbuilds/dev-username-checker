@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { classifyHttp, fetchWithTimeout } from '../../src/worker/http';
 
 const opts = {
@@ -44,6 +44,27 @@ describe('classifyHttp', () => {
     Object.defineProperty(res, 'url', { value: 'https://example.com/accounts/login/' });
     const all = { freeWhen: () => true, takenWhen: () => true };
     expect((await classifyHttp(res, all)).reason).toBe('Login wall');
+  });
+});
+
+describe('bounded body reads', () => {
+  it('a stalled body is unknown "Timed out" (the timeout covers the body read)', async () => {
+    const f = (async () => new Response(new ReadableStream({ start() {} }), { status: 200 })) as unknown as typeof fetch;
+    const res = await fetchWithTimeout(f, 'https://x.test', {}, 20);
+    expect(res).not.toBe('timeout');
+    expect(await classifyHttp(res, opts)).toEqual({ status: 'unknown', reason: 'Timed out' });
+  });
+  it('statusOnly cancels the body instead of reading it', async () => {
+    const cancel = vi.fn();
+    const res = new Response(new ReadableStream({ start() {}, cancel }), { status: 404 });
+    const c = await classifyHttp(res, { ...opts, statusOnly: true });
+    expect(c.status).toBe('free');
+    expect(cancel).toHaveBeenCalled();
+  });
+  it('statusOnly with a stalled body still classifies (no read, no hang)', async () => {
+    const f = (async () => new Response(new ReadableStream({ start() {} }), { status: 200 })) as unknown as typeof fetch;
+    const res = await fetchWithTimeout(f, 'https://x.test', {}, 20);
+    expect((await classifyHttp(res, { ...opts, statusOnly: true })).status).toBe('taken');
   });
 });
 

@@ -8,7 +8,7 @@ const json = (b: unknown, status = 200) =>
 const text = (b: string, status = 200) => new Response(b, { status });
 const code = (s: number) => () => new Response('', { status: s });
 
-type Fx = { free: (url: string) => Response; taken: (url: string) => Response };
+type Fx = { free: (url: string) => Response; taken: (url: string) => Response; freeIsUnknown?: boolean };
 const fixtures: Record<string, Fx> = {
   github: { free: code(404), taken: () => json({ login: 'x' }) },
   gitlab: {
@@ -26,7 +26,7 @@ const fixtures: Record<string, Fx> = {
   },
   youtube: { free: code(404), taken: () => text('<html></html>') },
   reddit: { free: code(404), taken: () => json({ data: { is_suspended: true } }) },
-  hackernews: { free: () => text('null'), taken: () => json({ id: 'x' }) },
+  hackernews: { free: () => text('null'), taken: () => json({ id: 'x' }), freeIsUnknown: true },
   producthunt: { free: code(404), taken: () => text('<html></html>') },
 };
 
@@ -42,7 +42,8 @@ describe('checkers', () => {
       it('free', async () => {
         const f = mk(fx.free);
         const r = await c.check('alice', { fetch: f as unknown as typeof fetch, env });
-        expect(r.status).toBe('free');
+        // Hacker News is case-sensitive: a null body is never proof of "free".
+        expect(r.status).toBe(fx.freeIsUnknown ? 'unknown' : 'free');
         expect(r.url).toBe(PLATFORMS[c.id].profileUrl('alice'));
         expect(r.method).toBe(PLATFORMS[c.id].method);
         expect(r.platform).toBe(id);
@@ -157,6 +158,17 @@ describe('checkers', () => {
   it('huggingface taken by an organization', async () => {
     const f = mk((u) => (u.includes('/api/organizations/') ? json({ name: 'x' }) : new Response('', { status: 404 })));
     const r = await CHECKERS.huggingface!.check('alice', { fetch: f as unknown as typeof fetch, env });
+    expect(r.status).toBe('taken');
+  });
+
+  it('hackernews null body is unknown (names are case-sensitive), never free', async () => {
+    const r = await CHECKERS.hackernews!.check('walterbright', { fetch: mk(() => text('null')) as unknown as typeof fetch, env });
+    expect(r.status).toBe('unknown');
+    expect(r.reason).toBe('Hacker News names are case-sensitive. Check it yourself');
+  });
+
+  it('hackernews JSON with an id is taken', async () => {
+    const r = await CHECKERS.hackernews!.check('pg', { fetch: mk(() => json({ id: 'pg', karma: 1 })) as unknown as typeof fetch, env });
     expect(r.status).toBe('taken');
   });
 

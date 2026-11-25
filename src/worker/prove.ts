@@ -3,7 +3,7 @@ import { RULES, validateFor } from '../shared/rules';
 import type { PlatformId, Status } from '../shared/types';
 import type { CheckDeps, Env } from './env';
 import { CHECKERS } from './checkers';
-import { fetchWithTimeout } from './http';
+import { fetchWithTimeout, readBody } from './http';
 
 // Well-known, long-lived accounts. The owner can swap any that turn out wrong.
 export const TAKEN_NAMES: Partial<Record<PlatformId, string>> = {
@@ -18,6 +18,22 @@ export const TAKEN_NAMES: Partial<Record<PlatformId, string>> = {
   producthunt: 'rrhoover',
   x: 'x',
 };
+
+// Names that must NEVER come back `free`: they are taken in a shared namespace
+// (org vs user) or only differ by case. A `free` here is a false "free" bug.
+export const TRAPS: ReadonlyArray<{ platform: PlatformId; name: string }> = [
+  { platform: 'devto', name: 'github' }, // an organization, not in the users API
+  { platform: 'gitlab', name: 'github' }, // a group; users and groups share one namespace
+  { platform: 'huggingface', name: 'huggingface' }, // an organization
+  { platform: 'hackernews', name: 'walterbright' }, // the account is WalterBright; HN is case-sensitive
+];
+
+export interface TrapEntry {
+  platform: PlatformId;
+  name: string;
+  status: Status;
+  pass: boolean;
+}
 
 const MAX_CONCURRENCY = 3;
 
@@ -78,12 +94,18 @@ async function proveOne(id: PlatformId, freeName: string, deps: CheckDeps): Prom
   };
 }
 
+async function proveTrap(t: { platform: PlatformId; name: string }, deps: CheckDeps): Promise<TrapEntry> {
+  const checker = CHECKERS[t.platform];
+  const status: Status = checker ? (await checker.check(t.name, deps)).status : 'unknown';
+  return { platform: t.platform, name: t.name, status, pass: status !== 'free' };
+}
+
 async function observeX(name: string, f: typeof fetch) {
   const res = await fetchWithTimeout(f, `https://x.com/${name}`);
   if (res === 'timeout') return { httpStatus: null, notExistText: null, error: 'timeout' };
   let notExistText = false;
   try {
-    notExistText = (await res.text()).includes("This account doesn't exist");
+    notExistText = ((await readBody(res)) ?? '').includes("This account doesn't exist");
   } catch {
     // body unreadable: leave false
   }
@@ -134,5 +156,6 @@ export async function handleProve(request: Request, env: Env, f: typeof fetch = 
   const ids = (Object.keys(PLATFORMS) as PlatformId[]).filter((id) => id !== 'x' && PLATFORMS[id].enabled);
   const entries = await mapLimit(ids, MAX_CONCURRENCY, (id) => proveOne(id, freeName, deps));
   const x = await proveX(freeName, deps);
-  return Response.json([...entries, x]);
+  const traps = await mapLimit([...TRAPS], MAX_CONCURRENCY, (t) => proveTrap(t, deps));
+  return Response.json({ platforms: [...entries, x], traps });
 }

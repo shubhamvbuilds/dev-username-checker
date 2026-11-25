@@ -8,10 +8,55 @@ type Predicate = (res: Response, body: string) => boolean;
 export interface ClassifyOpts {
   freeWhen: Predicate;
   takenWhen: Predicate;
+  /** Decide from the status alone: the body is cancelled, never read, and predicates see ''. */
+  statusOnly?: boolean;
 }
 export interface Classification {
   status: Status;
   reason?: string;
+}
+
+export const BLOCKED_REASON = 'Rate limited or blocked';
+
+// The timeout stays armed after fetch resolves so the body read is bounded too;
+// classifyHttp (or readBody) disarms it once the response is consumed.
+const inFlight = new WeakMap<Response, { signal: AbortSignal; disarm: () => void }>();
+
+function discard(res: Response): void {
+  inFlight.get(res)?.disarm();
+  try {
+    void res.body?.cancel().catch(() => undefined);
+  } catch {
+    // locked or already closed: nothing to cancel
+  }
+}
+
+/** Reads the body as text within the request's timeout; null means it timed out. */
+export async function readBody(res: Response): Promise<string | null> {
+  const t = inFlight.get(res);
+  if (!t) return res.text();
+  if (t.signal.aborted) {
+    discard(res);
+    return null;
+  }
+  let onAbort = () => {};
+  const aborted = new Promise<null>((resolve) => {
+    onAbort = () => resolve(null);
+    t.signal.addEventListener('abort', onAbort, { once: true });
+  });
+  try {
+    const text = res.text();
+    text.catch(() => undefined); // if the abort wins, a later rejection is expected
+    const body = await Promise.race([text, aborted]);
+    if (body === null) discard(res);
+    return body;
+  } catch (e) {
+    if (t.signal.aborted) return null;
+    throw e;
+  } finally {
+    t.signal.removeEventListener('abort', onAbort);
+    t.disarm();
+  }
 }
 
 // Redirects are not followed so a bounce to a login page is visible.
@@ -27,11 +72,12 @@ export async function fetchWithTimeout(
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), ms);
   try {
-    return await f(url, { redirect: 'manual', ...init, headers, signal: ctrl.signal });
+    const res = await f(url, { redirect: 'manual', ...init, headers, signal: ctrl.signal });
+    inFlight.set(res, { signal: ctrl.signal, disarm: () => clearTimeout(timer) });
+    return res;
   } catch {
-    return 'timeout';
-  } finally {
     clearTimeout(timer);
+    return 'timeout';
   }
 }
 
@@ -44,21 +90,33 @@ export async function classifyHttp(
 ): Promise<Classification> {
   if (res === 'timeout') return { status: 'unknown', reason: 'Timed out' };
   if (res.status === 429 || res.status === 403) {
-    return { status: 'unknown', reason: 'Rate limited or blocked' };
+    discard(res);
+    return { status: 'unknown', reason: BLOCKED_REASON };
   }
   const location = res.headers.get('location') ?? '';
   if ((res.status >= 300 && res.status < 400 && LOGIN_RE.test(location)) || LOGIN_RE.test(res.url)) {
+    discard(res);
     return { status: 'unknown', reason: 'Login wall' };
   }
-  if (res.status >= 500) return { status: 'unknown', reason: `Server error (${res.status})` };
+  if (res.status >= 500) {
+    discard(res);
+    return { status: 'unknown', reason: `Server error (${res.status})` };
+  }
   try {
-    const body = await res.text();
+    let body = '';
+    if (opts.statusOnly) discard(res);
+    else {
+      const read = await readBody(res);
+      if (read === null) return { status: 'unknown', reason: 'Timed out' };
+      body = read;
+    }
     const free = opts.freeWhen(res, body);
     const taken = opts.takenWhen(res, body);
     if (free && !taken) return { status: 'free' };
     if (taken && !free) return { status: 'taken' };
   } catch {
-    // unparsable body: fall through to unknown
+    // unreadable body: fall through to unknown
+    discard(res);
   }
   return { status: 'unknown', reason: `Unexpected response (${res.status})` };
 }
@@ -103,4 +161,5 @@ export async function simpleCheck(
 
 export const is404: Predicate = (r) => r.status === 404;
 export const is200: Predicate = (r) => r.status === 200;
-export const status404or200 = { freeWhen: is404, takenWhen: is200 };
+// Status-only: the body is never needed for these.
+export const status404or200: ClassifyOpts = { freeWhen: is404, takenWhen: is200, statusOnly: true };

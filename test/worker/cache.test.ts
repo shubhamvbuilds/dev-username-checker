@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { env } from 'cloudflare:workers';
-import { getCached, putCached } from '../../src/worker/cache';
+import { CHECKER_VERSION, getBlocks, getCached, putCached, recordBlock } from '../../src/worker/cache';
 import type { CheckResult, Status } from '../../src/shared/types';
 
 const MIN = 60_000;
@@ -44,11 +44,36 @@ describe('d1 cache', () => {
     expect(await getCached(env.DB, r.platform, r.name, T0)).toBeNull();
   });
 
-  it('ttlMultiplier stretches expiry: free at +2h', async () => {
+  it('takenMultiplier stretches taken expiry only: taken at +30h', async () => {
+    const r = mk('taken');
+    await putCached(env.DB, r);
+    expect(await getCached(env.DB, r.platform, r.name, T0 + 30 * HOUR)).toBeNull();
+    expect((await getCached(env.DB, r.platform, r.name, T0 + 30 * HOUR, 6))?.status).toBe('taken');
+  });
+
+  it('takenMultiplier never stretches free: free at +2h stays expired', async () => {
     const r = mk('free');
     await putCached(env.DB, r);
-    expect(await getCached(env.DB, r.platform, r.name, T0 + 2 * HOUR)).toBeNull();
-    expect((await getCached(env.DB, r.platform, r.name, T0 + 2 * HOUR, 6))?.status).toBe('free');
+    expect(await getCached(env.DB, r.platform, r.name, T0 + 2 * HOUR, 6)).toBeNull();
+  });
+
+  it('putCached writes CHECKER_VERSION', async () => {
+    const r = mk('free');
+    await putCached(env.DB, r);
+    const row = await env.DB.prepare('SELECT version FROM results WHERE platform = ?1 AND name = ?2').bind(r.platform, r.name).first<{ version: number }>();
+    expect(CHECKER_VERSION).toBe(2);
+    expect(row?.version).toBe(CHECKER_VERSION);
+  });
+
+  it('getCached ignores rows written by another checker version', async () => {
+    const r = mk('free');
+    await env.DB
+      .prepare('INSERT INTO results (platform, name, status, reason, method, checked_at, version) VALUES (?1, ?2, ?3, NULL, ?4, ?5, ?6)')
+      .bind(r.platform, r.name, 'free', 'api', T0, CHECKER_VERSION - 1)
+      .run();
+    expect(await getCached(env.DB, r.platform, r.name, T0)).toBeNull();
+    await putCached(env.DB, r); // upsert rewrites the row at the current version
+    expect((await getCached(env.DB, r.platform, r.name, T0))?.status).toBe('free');
   });
 
   it('rebuilds url, keeps reason, method and checkedAt', async () => {
@@ -80,5 +105,13 @@ describe('d1 cache', () => {
     const got = await getCached(env.DB, r.platform, r.name, T0 + 2 * MIN);
     expect(got?.status).toBe('taken');
     expect(got?.checkedAt).toBe(T0 + MIN);
+  });
+});
+
+describe('blocks', () => {
+  it('records a 10 minute block, read back with one query', async () => {
+    await recordBlock(env.DB, 'reddit', T0);
+    expect((await getBlocks(env.DB, T0 + 9 * MIN)).has('reddit')).toBe(true);
+    expect((await getBlocks(env.DB, T0 + 10 * MIN + 1)).has('reddit')).toBe(false);
   });
 });

@@ -21,7 +21,7 @@ export const gitlab: Checker = {
       freeWhen: (r, b) => is200(r, b) && isArray(b) && isEmpty(b),
       takenWhen: (r, b) => is200(r, b) && isArray(b) && !isEmpty(b),
     });
-    const groups = await classifyHttp(groupsRes, { freeWhen: (r) => r.status === 404, takenWhen: is200 });
+    const groups = await classifyHttp(groupsRes, { freeWhen: (r) => r.status === 404, takenWhen: is200, statusOnly: true });
     if (users.status === 'taken' || groups.status === 'taken') return makeResult('gitlab', name, { status: 'taken' });
     if (users.status === 'free' && groups.status === 'free') return makeResult('gitlab', name, { status: 'free' });
     return makeResult('gitlab', name, users.status !== 'free' ? users : groups);

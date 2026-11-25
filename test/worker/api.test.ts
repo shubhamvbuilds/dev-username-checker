@@ -3,7 +3,7 @@ import { env } from 'cloudflare:workers';
 import { handleCheck } from '../../src/worker/api';
 import { CHECKERS } from '../../src/worker/checkers';
 import { trafficLevel } from '../../src/worker/traffic';
-import { putCached, getCached } from '../../src/worker/cache';
+import { putCached, getCached, getBlocks } from '../../src/worker/cache';
 import { PLATFORMS } from '../../src/shared/platforms';
 import type { CheckResult } from '../../src/shared/types';
 import type { Env } from '../../src/worker/env';
@@ -18,9 +18,9 @@ const req = (qs: string, headers: Record<string, string> = {}) =>
 // github: 404 => free
 const freeFetch = () => vi.fn(async (..._a: unknown[]) => new Response('', { status: 404 }));
 
-async function run(qs: string, e: Env = mkEnv(), f: ReturnType<typeof freeFetch> = freeFetch(), headers = {}) {
+async function run(qs: string, e: Env = mkEnv(), f: ReturnType<typeof freeFetch> = freeFetch(), headers = {}, now?: number) {
   const { c, ps } = ctx();
-  const res = await handleCheck(req(qs, headers), e, c, f as unknown as typeof fetch);
+  const res = await handleCheck(req(qs, headers), e, c, f as unknown as typeof fetch, now);
   const text = await res.text();
   await Promise.all(ps);
   const lines = text ? text.trim().split('\n').map((l) => JSON.parse(l) as CheckResult) : [];
@@ -96,15 +96,79 @@ describe('/api/check', () => {
     expect(f).toHaveBeenCalledTimes(0);
   });
 
-  it('level 3 multiplies the cache ttl by 6', async () => {
-    const old = Date.now() - 2 * 3_600_000; // free ttl is 1h
-    await putCached(env.DB, { platform: 'github', name: 'stale1', status: 'free', url: '', method: 'api', checkedAt: old });
+  it('level 3 multiplies the taken cache ttl by 6', async () => {
+    const old = Date.now() - 30 * 3_600_000; // taken ttl is 24h
+    await putCached(env.DB, { platform: 'github', name: 'stale1', status: 'taken', url: '', method: 'api', checkedAt: old });
     const a = await run('name=stale1&platforms=github');
     expect(a.f).toHaveBeenCalledTimes(1);
-    await putCached(env.DB, { platform: 'github', name: 'stale2', status: 'free', url: '', method: 'api', checkedAt: old });
+    await putCached(env.DB, { platform: 'github', name: 'stale2', status: 'taken', url: '', method: 'api', checkedAt: old });
     const b = await run('name=stale2&platforms=github', mkEnv({ TRAFFIC_LEVEL: '3' }));
     expect(b.f).toHaveBeenCalledTimes(0);
-    expect(b.lines[0]!.status).toBe('free');
+    expect(b.lines[0]!.status).toBe('taken');
+  });
+
+  it('level 3 never stretches a stale free result: it is re-fetched', async () => {
+    const old = Date.now() - 2 * 3_600_000; // free ttl is 1h
+    await putCached(env.DB, { platform: 'github', name: 'stalefree', status: 'free', url: '', method: 'api', checkedAt: old });
+    const b = await run('name=stalefree&platforms=github', mkEnv({ TRAFFIC_LEVEL: '3' }));
+    expect(b.f).toHaveBeenCalledTimes(1);
+  });
+
+  it('a cache hit is never re-written', async () => {
+    const at = Date.now() - 60_000;
+    await putCached(env.DB, { platform: 'github', name: 'nowrite', status: 'taken', url: '', method: 'api', checkedAt: at });
+    const sqls: string[] = [];
+    const db = { prepare: (s: string) => (sqls.push(s), env.DB.prepare(s)) } as unknown as D1Database;
+    const { lines, f } = await run('name=nowrite&platforms=github', { DB: db } as Env);
+    expect(lines[0]).toMatchObject({ status: 'taken', checkedAt: at });
+    expect(f).not.toHaveBeenCalled();
+    expect(sqls.filter((s) => /INSERT|UPDATE|DELETE/i.test(s))).toEqual([]);
+  });
+
+  describe('blocks (stop on 403/429)', () => {
+    const T = 1_700_000_000_000; // in the past, so blocks never leak into later tests
+    const MIN = 60_000;
+    const f429 = () => vi.fn(async (..._a: unknown[]) => new Response('', { status: 429 }));
+
+    it('a 429 records a block; the next request makes no fetch; after 10 minutes it fetches again', async () => {
+      const a = await run('name=blockme&platforms=github', mkEnv(), f429(), {}, T);
+      expect(a.f).toHaveBeenCalledTimes(1);
+      expect(a.lines[0]).toMatchObject({ status: 'unknown', reason: 'Rate limited or blocked' });
+      expect((await getBlocks(env.DB, T)).has('github')).toBe(true);
+
+      const b = await run('name=blockme2&platforms=github', mkEnv(), freeFetch(), {}, T + 5 * MIN);
+      expect(b.f).not.toHaveBeenCalled();
+      expect(b.lines[0]).toMatchObject({ platform: 'github', status: 'unknown', reason: 'Rate limited or blocked' });
+
+      const c = await run('name=blockme3&platforms=github', mkEnv(), freeFetch(), {}, T + 10 * MIN + 1);
+      expect(c.f).toHaveBeenCalledTimes(1);
+      expect(c.lines[0]!.status).toBe('free');
+    });
+
+    it('a 403 also records a block, and other platforms are still fetched', async () => {
+      const f = vi.fn(async (u: unknown) => new Response('', { status: String(u).includes('github.com') ? 403 : 404 }));
+      await run('name=blockme4&platforms=github', mkEnv(), f as unknown as ReturnType<typeof freeFetch>, {}, T + 100 * MIN);
+      const g = freeFetch();
+      const r = await run('name=blockme5&platforms=github,devto', mkEnv(), g, {}, T + 101 * MIN);
+      expect(g).toHaveBeenCalledTimes(1);
+      expect(String(g.mock.calls[0]![0])).toContain('dev.to');
+      expect(r.lines.find((l) => l.platform === 'github')).toMatchObject({ status: 'unknown', reason: 'Rate limited or blocked' });
+      expect(r.lines.find((l) => l.platform === 'devto')!.status).toBe('free');
+    });
+
+    it('reads blocks with exactly one query per request', async () => {
+      const sqls: string[] = [];
+      const db = { prepare: (s: string) => (sqls.push(s), env.DB.prepare(s)) } as unknown as D1Database;
+      await run('name=blockme6&platforms=github,devto,youtube', { DB: db } as Env, freeFetch(), {}, T + 200 * MIN);
+      expect(sqls.filter((s) => /FROM blocks/i.test(s))).toHaveLength(1);
+    });
+  });
+
+  it('fails open when the rate limiter throws', async () => {
+    const limit = vi.fn(async () => { throw new Error('limiter down'); });
+    const { res, lines } = await run('name=alice1&platforms=github', mkEnv({ RATE_LIMITER: { limit } }));
+    expect(res.status).toBe(200);
+    expect(lines).toHaveLength(1);
   });
 
   it('writes definitive results to the cache', async () => {
