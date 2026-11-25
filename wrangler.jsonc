@@ -9,9 +9,8 @@
   "d1_databases": [
     {
       "binding": "DB",
-      // Placeholder: the owner creates the real database and replaces this id.
       "database_name": "dev-username-checker",
-      "database_id": "00000000-0000-0000-0000-000000000000"
+      "database_id": "65e68a9d-021a-4ad1-b6a7-98a73905cf5e"
     }
   ],
   // The Workers Rate Limiting binding only supports period 10 or 60 (seconds), so the

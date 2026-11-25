@@ -53,6 +53,18 @@ describe('/__prove', () => {
     expect(li.pass).toBe(true);
   });
 
+  it('Hacker News passes with taken + unknown (it never reports free)', async () => {
+    const f: typeof fetch = async (u) =>
+      String(u).includes('/user/pg.json') ? new Response('{"id":"pg"}') : new Response('null');
+    const res = await handleProve(req('?key=secret'), mkEnv({ PROVE_KEY: 'secret' }), f);
+    const { platforms: body } = (await res.json()) as { platforms: Array<Record<string, unknown>> };
+    expect(body.find((e) => e.platform === 'hackernews')).toMatchObject({
+      takenStatus: 'taken',
+      freeStatus: 'unknown',
+      pass: true,
+    });
+  });
+
   it('free name is 14 lowercase letters, differing per request', async () => {
     const run = async () => {
       const res = await handleProve(req('?key=secret'), mkEnv({ PROVE_KEY: 'secret' }), stub(404));

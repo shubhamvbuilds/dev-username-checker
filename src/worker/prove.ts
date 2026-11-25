@@ -10,7 +10,7 @@ export const TAKEN_NAMES: Partial<Record<PlatformId, string>> = {
   github: 'torvalds',
   gitlab: 'gitlab',
   devto: 'ben',
-  bluesky: 'bsky', // resolves bsky.bsky.social
+  bluesky: 'theshubham', // theshubham.bsky.social exists (bsky.bsky.social does not)
   huggingface: 'huggingface',
   youtube: 'youtube',
   reddit: 'spez',
@@ -79,9 +79,11 @@ async function proveOne(id: PlatformId, freeName: string, deps: CheckDeps): Prom
   const free: Status = linkOnly || !checker ? 'unknown' : (await checker.check(freeName, deps)).status;
   // Invalid comes from the rules, not a fetch. Link-only platforms are never checked.
   const invalid: Status = linkOnly ? 'unknown' : validateFor(id, invalidName).ok ? 'unknown' : 'invalid';
+  // Hacker News never reports free (names are case-sensitive), so its expected free result is unknown.
+  const expectedFree: Status = id === 'hackernews' ? 'unknown' : 'free';
   const pass = linkOnly
     ? taken === 'unknown' && free === 'unknown' && invalid === 'unknown'
-    : taken === 'taken' && free === 'free' && invalid === 'invalid';
+    : taken === 'taken' && free === expectedFree && invalid === 'invalid';
   return {
     platform: id,
     takenName,
