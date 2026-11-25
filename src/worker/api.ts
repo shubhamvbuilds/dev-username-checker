@@ -5,6 +5,7 @@ import { getCached, putCached } from './cache';
 import { CHECKERS } from './checkers';
 import type { Env } from './env';
 import { trafficLevel } from './traffic';
+import { verifyTurnstile } from './turnstile';
 
 const json = (status: number, error: string) =>
   new Response(JSON.stringify({ error }), { status, headers: { 'content-type': 'application/json' } });
@@ -77,6 +78,11 @@ export async function handleCheck(
   const searchable = isSearchable(name);
   if (!searchable.ok) return json(400, searchable.error);
   if (level >= 2 && params.get('suggestion') === '1') return json(503, 'Suggestions paused due to high traffic');
+
+  if (params.get('suggestion') === '1') {
+    const ok = await verifyTurnstile(request.headers.get('cf-turnstile-response'), ip, env, f);
+    if (!ok) return json(403, 'Verification failed');
+  }
 
   const ids = requestedPlatforms(params.get('platforms'));
   const { readable, writable } = new TransformStream<Uint8Array, Uint8Array>();

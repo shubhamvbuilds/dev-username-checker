@@ -3,6 +3,7 @@ import { isSearchable, normalizeName, validateFor } from '../src/shared/rules';
 import type { CheckResult, PlatformId } from '../src/shared/types';
 import { localGet, localPut } from './local-cache';
 import { add, renderRow, renderSuggestion, renderXResult } from './render';
+import { getToken } from './turnstile';
 import { parseNdjsonStream } from './stream';
 import { checkablePlatforms, checkOnX, findSuggestions, PAUSED_MSG, RATE_LIMIT_MSG } from './suggestions';
 
@@ -106,6 +107,7 @@ async function runSuggestions(name: string, results: CheckResult[], my: number, 
   const outcome = await findSuggestions({
     name, platforms: ids, signal,
     fetch: (u, init) => fetch(u, init),
+    getToken,
     onSuggestion: (s) => {
       if (my !== runId || signal.aborted) return;
       count++;

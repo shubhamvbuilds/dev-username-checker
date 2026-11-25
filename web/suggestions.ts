@@ -6,7 +6,7 @@ import { parseNdjsonStream } from './stream';
 export const PAUSED_MSG = 'Suggestions paused due to high traffic';
 export const RATE_LIMIT_MSG = 'Too many searches, try again in a few minutes';
 
-export type FetchFn = (url: string, init?: { signal?: AbortSignal }) => Promise<Response>;
+export type FetchFn = (url: string, init?: { signal?: AbortSignal; headers?: Record<string, string> }) => Promise<Response>;
 export type SuggestionOutcome = 'done' | 'paused' | 'rate-limited';
 
 export interface Suggestion {
@@ -25,6 +25,8 @@ export interface FindOptions {
   name: string;
   platforms: PlatformId[];
   fetch: FetchFn;
+  /** Resolves a single-use Turnstile token per suggestion request; null/undefined sends no header. */
+  getToken?: () => Promise<string | null>;
   signal: AbortSignal;
   /** Called once per suggestion, only after its stream finished and it is free everywhere (X excluded). */
   onSuggestion: (s: Suggestion) => void;
@@ -61,7 +63,12 @@ export async function findSuggestions(opts: FindOptions): Promise<SuggestionOutc
   await Promise.all(names.map(async (name) => {
     try {
       const url = `/api/check?name=${encodeURIComponent(name)}&platforms=${encodeURIComponent(checked.join(','))}&suggestion=1`;
-      const res = await opts.fetch(url, { signal: inner.signal });
+      const token = opts.getToken ? await opts.getToken() : null;
+      if (inner.signal.aborted) return;
+      const res = await opts.fetch(url, {
+        signal: inner.signal,
+        ...(token ? { headers: { 'cf-turnstile-response': token } } : {}),
+      });
       if (res.status === 503 || res.status === 429) {
         if (outcome === 'done') outcome = res.status === 503 ? 'paused' : 'rate-limited';
         inner.abort();
