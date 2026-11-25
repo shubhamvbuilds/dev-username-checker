@@ -65,12 +65,14 @@ describe('checkers', () => {
         expect(r.status).toBe('unknown');
       });
       it('sends identifying User-Agent', async () => {
+        const uas: (string | null)[] = [];
         const f = vi.fn(async (_u: unknown, init?: RequestInit) => {
-          expect(new Headers(init?.headers).get('user-agent')).toBe('dev-username-checker (+https://github.com)');
+          uas.push(new Headers(init?.headers).get('user-agent'));
           return fx.free('');
         });
         await c.check('alice', { fetch: f as unknown as typeof fetch, env });
-        expect(f).toHaveBeenCalled();
+        expect(uas.length).toBeGreaterThan(0);
+        for (const ua of uas) expect(ua).toBe('dev-username-checker (+https://github.com)');
       });
     });
   }
@@ -96,7 +98,25 @@ describe('checkers', () => {
     await CHECKERS.hashnode!.check('alice', { fetch: f as unknown as typeof fetch, env });
     expect(f.mock.calls[0]![0]).toBe('https://gql.hashnode.com');
     expect(f.mock.calls[0]![1]?.method).toBe('POST');
-    expect(String(f.mock.calls[0]![1]?.body)).toContain('alice');
+    const body = JSON.parse(String(f.mock.calls[0]![1]?.body));
+    expect(body.variables).toEqual({ username: 'alice' });
+    expect(body.query).not.toContain('alice');
+  });
+
+  it('hashnode with errors present and user null is unknown, never free', async () => {
+    const r = await CHECKERS.hashnode!.check('alice', {
+      fetch: mk(() => json({ data: { user: null }, errors: [{ message: 'x' }] })) as unknown as typeof fetch,
+      env,
+    });
+    expect(r.status).toBe('unknown');
+  });
+
+  it('hashnode with empty errors array and user null is free', async () => {
+    const r = await CHECKERS.hashnode!.check('alice', {
+      fetch: mk(() => json({ data: { user: null }, errors: [] })) as unknown as typeof fetch,
+      env,
+    });
+    expect(r.status).toBe('free');
   });
 
   it('hashnode with errors and no data is unknown', async () => {
