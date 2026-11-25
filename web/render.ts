@@ -1,5 +1,5 @@
 import { PLATFORMS } from '../src/shared/platforms';
-import type { CheckResult } from '../src/shared/types';
+import type { CheckResult, PlatformId } from '../src/shared/types';
 
 const RESERVE_NOTE = 'The platform may still reserve this name. Signup confirms it.';
 
@@ -54,12 +54,13 @@ export function renderRow(r: CheckResult): HTMLElement {
 }
 
 /** A suggestion row: the name, plus an optional "X: check" control rendered in place by the caller. */
-export function renderSuggestion(name: string, onCheckX: ((slot: HTMLElement) => void) | null): HTMLElement {
+export function renderSuggestion(name: string, unknown: PlatformId[], onCheckX: ((slot: HTMLElement) => void) | null): HTMLElement {
   const row = el('li', 'row row-free');
   row.dataset.name = name;
   add(row, el('span', 'platform', name));
   const body = el('span', 'detail');
-  add(body, el('strong', 'status', 'Free on all selected'));
+  add(body, el('strong', 'status', unknown.length ? 'Free where checked' : 'Free on all selected'));
+  if (unknown.length) add(body, el('span', 'note', `Couldn't confirm: ${unknown.map((p) => PLATFORMS[p]?.label ?? p).join(', ')}`));
   if (onCheckX) {
     const slot = el('span', 'x-slot');
     const btn = document.createElement('button');

@@ -4,7 +4,7 @@ import type { CheckResult, PlatformId } from '../src/shared/types';
 import { localGet, localPut } from './local-cache';
 import { add, renderRow, renderSuggestion, renderXResult } from './render';
 import { parseNdjsonStream } from './stream';
-import { checkOnX, findSuggestions, PAUSED_MSG, RATE_LIMIT_MSG } from './suggestions';
+import { checkablePlatforms, checkOnX, findSuggestions, PAUSED_MSG, RATE_LIMIT_MSG } from './suggestions';
 
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
 const form = $<HTMLFormElement>('form');
@@ -20,6 +20,9 @@ const summaryEl = $('platforms-summary');
 const suggestionsEl = $('suggestions');
 const suggestionList = $('suggestion-list');
 const suggestionMsg = $('suggestions-msg');
+const suggestionTitle = $('suggestions-title');
+const suggestionNote = $('suggestions-note');
+const NO_VARIATION_MSG = 'No variation is free on every checked platform. Try a different name.';
 
 const PLATFORM_KEY = 'uc:platforms';
 const enabledIds = (Object.keys(PLATFORMS) as PlatformId[]).filter((id) => PLATFORMS[id].enabled);
@@ -83,19 +86,32 @@ let controller: AbortController | null = null;
 function resetSuggestions(): void {
   suggestionList.replaceChildren();
   suggestionMsg.hidden = true;
+  suggestionTitle.hidden = true;
+  suggestionNote.hidden = true;
   suggestionsEl.hidden = true;
 }
 
 async function runSuggestions(name: string, results: CheckResult[], my: number, signal: AbortSignal): Promise<void> {
   const ids = [...selected];
   if (!results.some((r) => r.status === 'taken' && selected.has(r.platform))) return;
+  const notChecked = ids.filter((id) => !checkablePlatforms([id]).length).map((id) => PLATFORMS[id].label);
+  let count = 0;
+  const showSection = () => {
+    suggestionsEl.hidden = false;
+    if (notChecked.length) {
+      suggestionNote.textContent = `Not checked automatically: ${notChecked.join(', ')}`;
+      suggestionNote.hidden = false;
+    }
+  };
   const outcome = await findSuggestions({
     name, platforms: ids, signal,
     fetch: (u, init) => fetch(u, init),
     onSuggestion: (s) => {
       if (my !== runId || signal.aborted) return;
-      suggestionsEl.hidden = false;
-      add(suggestionList, renderSuggestion(s.name, selected.has('x') ? (slot) => {
+      count++;
+      showSection();
+      suggestionTitle.hidden = false;
+      add(suggestionList, renderSuggestion(s.name, s.unknown, selected.has('x') ? (slot) => {
         void checkOnX(s.name, (u, init) => fetch(u, init), signal).then((r) => {
           if (signal.aborted) return;
           slot.replaceChildren(renderXResult(s.name, r));
@@ -104,10 +120,11 @@ async function runSuggestions(name: string, results: CheckResult[], my: number, 
     },
   });
   if (my !== runId || signal.aborted) return;
-  if (outcome !== 'done') {
-    suggestionsEl.hidden = false;
+  if (outcome !== 'done' || count === 0) {
+    showSection();
+    suggestionTitle.hidden = true;
     suggestionList.replaceChildren();
-    suggestionMsg.textContent = outcome === 'paused' ? PAUSED_MSG : RATE_LIMIT_MSG;
+    suggestionMsg.textContent = outcome === 'paused' ? PAUSED_MSG : outcome === 'rate-limited' ? RATE_LIMIT_MSG : NO_VARIATION_MSG;
     suggestionMsg.hidden = false;
   }
 }

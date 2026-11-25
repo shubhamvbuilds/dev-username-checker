@@ -1,3 +1,4 @@
+import { PLATFORMS } from '../src/shared/platforms';
 import { generateSuggestions } from '../src/shared/suggest';
 import type { CheckResult, PlatformId } from '../src/shared/types';
 import { parseNdjsonStream } from './stream';
@@ -11,6 +12,13 @@ export type SuggestionOutcome = 'done' | 'paused' | 'rate-limited';
 export interface Suggestion {
   name: string;
   results: CheckResult[];
+  /** Checked platforms that came back `unknown` for this suggestion. */
+  unknown: PlatformId[];
+}
+
+/** Platforms a suggestion request can actually check: no X, no link-only. */
+export function checkablePlatforms(platforms: PlatformId[]): PlatformId[] {
+  return platforms.filter((p) => p !== 'x' && PLATFORMS[p].method !== 'link-only');
 }
 
 export interface FindOptions {
@@ -22,9 +30,25 @@ export interface FindOptions {
   onSuggestion: (s: Suggestion) => void;
 }
 
+/**
+ * Returns the unknown platforms if the lines qualify, else null. Qualifies when every
+ * requested platform has exactly one line for this name, none is taken/invalid, and at least one is free.
+ */
+function qualify(name: string, checked: PlatformId[], results: CheckResult[]): PlatformId[] | null {
+  if (results.length !== checked.length) return null;
+  const seen = new Set<PlatformId>();
+  for (const r of results) {
+    if (r.name !== name || !checked.includes(r.platform) || seen.has(r.platform)) return null;
+    if (r.status !== 'free' && r.status !== 'unknown') return null;
+    seen.add(r.platform);
+  }
+  if (!results.some((r) => r.status === 'free')) return null;
+  return results.filter((r) => r.status === 'unknown').map((r) => r.platform);
+}
+
 /** Checks up to 6 alternatives in parallel; X is never requested here (checked on click). */
 export async function findSuggestions(opts: FindOptions): Promise<SuggestionOutcome> {
-  const checked = opts.platforms.filter((p) => p !== 'x');
+  const checked = checkablePlatforms(opts.platforms);
   if (checked.length === 0) return 'done';
   const names = generateSuggestions(opts.name, opts.platforms);
 
@@ -47,9 +71,8 @@ export async function findSuggestions(opts: FindOptions): Promise<SuggestionOutc
       const results: CheckResult[] = [];
       await parseNdjsonStream(res.body, (r) => results.push(r));
       if (inner.signal.aborted) return;
-      if (results.length === checked.length && results.every((r) => r.status === 'free')) {
-        opts.onSuggestion({ name, results });
-      }
+      const q = qualify(name, checked, results);
+      if (q) opts.onSuggestion({ name, results, unknown: q });
     } catch { /* aborted or network failure: this suggestion is simply dropped */ }
   }));
 

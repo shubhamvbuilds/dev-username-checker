@@ -117,6 +117,53 @@ describe('suggestions wiring', () => {
     expect(items[0].querySelector('button')).toBeNull();
   });
 
+  it('shows "Couldn\'t confirm" for unknown platforms on a qualifying suggestion', async () => {
+    localStorage.setItem('uc:platforms', JSON.stringify(['github', 'reddit']));
+    vi.stubGlobal('fetch', vi.fn(async (url: string) => {
+      const p = new URL(url, 'http://l').searchParams;
+      const name = p.get('name')!;
+      if (p.get('suggestion')) return ndjson([res('github', name, 'free'), res('reddit', name, 'unknown')]);
+      return ndjson([res('github', name, 'taken'), res('reddit', name, 'free')]);
+    }));
+    await import('../../web/main');
+    submit('alpha');
+    await tick();
+    const items = document.querySelectorAll('#suggestion-list li');
+    expect(items.length).toBe(6);
+    expect(items[0].textContent).toContain("Couldn't confirm: Reddit");
+  });
+
+  it('shows the no-variation message and hides the heading when nothing qualifies', async () => {
+    localStorage.setItem('uc:platforms', JSON.stringify(['github']));
+    vi.stubGlobal('fetch', vi.fn(async (url: string) => {
+      const name = new URL(url, 'http://l').searchParams.get('name')!;
+      return ndjson([res('github', name, 'taken')]);
+    }));
+    await import('../../web/main');
+    submit('alpha');
+    await tick();
+    expect(document.getElementById('suggestions')!.hidden).toBe(false);
+    expect(document.getElementById('suggestions-title')!.hidden).toBe(true);
+    expect(document.getElementById('suggestions-msg')!.textContent).toBe('No variation is free on every checked platform. Try a different name.');
+  });
+
+  it('lists link-only platforms and X under "Not checked automatically"', async () => {
+    localStorage.setItem('uc:platforms', JSON.stringify(['github', 'x', 'npm', 'hashnode', 'peerlist', 'linkedin']));
+    vi.stubGlobal('fetch', vi.fn(async (url: string) => {
+      const p = new URL(url, 'http://l').searchParams;
+      const name = p.get('name')!;
+      if (p.get('suggestion')) return ndjson([res('github', name, 'free')]);
+      return ndjson([res('github', name, 'taken')]);
+    }));
+    await import('../../web/main');
+    submit('alpha');
+    await tick();
+    const note = document.getElementById('suggestions-note')!;
+    expect(note.hidden).toBe(false);
+    for (const l of ['LinkedIn', 'npm', 'Hashnode', 'Peerlist', 'X']) expect(note.textContent).toContain(l);
+    expect(note.textContent!.startsWith('Not checked automatically: ')).toBe(true);
+  });
+
   it('shows the paused and rate-limit messages', async () => {
     vi.stubGlobal('fetch', vi.fn(async (url: string) => {
       if (url.includes('suggestion=1')) return new Response('{"error":"x"}', { status: 503 });
@@ -127,5 +174,6 @@ describe('suggestions wiring', () => {
     submit('alpha');
     await tick();
     expect(document.getElementById('suggestions')!.textContent).toContain('Suggestions paused due to high traffic');
+    expect(document.getElementById('suggestions-title')!.hidden).toBe(true);
   });
 });
