@@ -34,7 +34,7 @@ export const PLATFORMS: Record<PlatformId, PlatformMeta> = {
     profileUrl: (n) => `https://dev.to/${n}`,
     signupUrl: 'https://dev.to/enter?state=new-user',
     enabled: true,
-    method: 'api',
+    method: 'page', // profile page: org names (dev.to/github) are not in the users API
   },
   hashnode: {
     id: 'hashnode',
@@ -42,7 +42,7 @@ export const PLATFORMS: Record<PlatformId, PlatformMeta> = {
     profileUrl: (n) => `https://hashnode.com/@${n}`,
     signupUrl: 'https://hashnode.com/onboard',
     enabled: true,
-    method: 'api',
+    method: 'link-only', // GraphQL endpoint moved (gql.hashnode.com 301s to an announcement), 2026-11-25
   },
   bluesky: {
     id: 'bluesky',
@@ -58,7 +58,7 @@ export const PLATFORMS: Record<PlatformId, PlatformMeta> = {
     profileUrl: (n) => `https://www.npmjs.com/~${n}`,
     signupUrl: 'https://www.npmjs.com/signup',
     enabled: true,
-    method: 'api',
+    method: 'link-only', // registry user lookup needs auth; www.npmjs.com blocks bots (403), 2026-11-25
   },
   gitlab: {
     id: 'gitlab',
@@ -106,7 +106,7 @@ export const PLATFORMS: Record<PlatformId, PlatformMeta> = {
     profileUrl: (n) => `https://peerlist.io/${n}`,
     signupUrl: 'https://peerlist.io/signup',
     enabled: true,
-    method: 'page',
+    method: 'link-only', // Cloudflare challenge (403) on every profile URL, 2026-11-25
   },
   linkedin: {
     id: 'linkedin',

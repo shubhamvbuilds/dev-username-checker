@@ -11,10 +11,11 @@ const code = (s: number) => () => new Response('', { status: s });
 type Fx = { free: (url: string) => Response; taken: (url: string) => Response };
 const fixtures: Record<string, Fx> = {
   github: { free: code(404), taken: () => json({ login: 'x' }) },
-  gitlab: { free: () => json([]), taken: () => json([{ id: 1 }]) },
-  npm: { free: code(404), taken: () => json({ name: 'x' }) },
-  devto: { free: code(404), taken: () => json({ id: 1 }) },
-  hashnode: { free: () => json({ data: { user: null } }), taken: () => json({ data: { user: { id: 'a' } } }) },
+  gitlab: {
+    free: (u) => (u.includes('/groups/') ? new Response('', { status: 404 }) : json([])),
+    taken: (u) => (u.includes('/groups/') ? new Response('', { status: 404 }) : json([{ id: 1 }])),
+  },
+  devto: { free: code(404), taken: () => text('<html></html>') },
   bluesky: {
     free: () => json({ error: 'InvalidRequest', message: 'Unable to resolve handle' }, 400),
     taken: () => json({ did: 'did:plc:abc' }),
@@ -27,7 +28,6 @@ const fixtures: Record<string, Fx> = {
   reddit: { free: code(404), taken: () => json({ data: { is_suspended: true } }) },
   hackernews: { free: () => text('null'), taken: () => json({ id: 'x' }) },
   producthunt: { free: code(404), taken: () => text('<html></html>') },
-  peerlist: { free: code(404), taken: () => text('<html></html>') },
 };
 
 const env = {} as Env;
@@ -93,39 +93,53 @@ describe('checkers', () => {
     expect(new Headers(f.mock.calls[0]![1]?.headers).get('authorization')).toBeNull();
   });
 
-  it('hashnode POSTs the graphql query', async () => {
-    const f = vi.fn(async (_u: unknown, _i?: RequestInit) => json({ data: { user: null } }));
-    await CHECKERS.hashnode!.check('alice', { fetch: f as unknown as typeof fetch, env });
-    expect(f.mock.calls[0]![0]).toBe('https://gql.hashnode.com');
-    expect(f.mock.calls[0]![1]?.method).toBe('POST');
-    const body = JSON.parse(String(f.mock.calls[0]![1]?.body));
-    expect(body.variables).toEqual({ username: 'alice' });
-    expect(body.query).not.toContain('alice');
+  it('devto requests the profile page and a 200 (org or user) is taken', async () => {
+    const f = mk(() => text('<html></html>'));
+    const r = await CHECKERS.devto!.check('github', { fetch: f as unknown as typeof fetch, env });
+    expect(f.mock.calls[0]![0]).toBe('https://dev.to/github');
+    expect(r.status).toBe('taken');
   });
 
-  it('hashnode with errors present and user null is unknown, never free', async () => {
-    const r = await CHECKERS.hashnode!.check('alice', {
-      fetch: mk(() => json({ data: { user: null }, errors: [{ message: 'x' }] })) as unknown as typeof fetch,
-      env,
+  it('devto 404 is free, 302 is unknown, 500 is unknown', async () => {
+    const run = (s: number) => CHECKERS.devto!.check('alice', { fetch: mk(code(s)) as unknown as typeof fetch, env });
+    expect((await run(404)).status).toBe('free');
+    expect((await run(302)).status).toBe('unknown');
+    expect((await run(500)).status).toBe('unknown');
+  });
+
+  describe('gitlab users + groups', () => {
+    const gl = (users: () => Response, groups: () => Response) =>
+      mk((u) => (u.includes('/api/v4/groups/') ? groups() : users())) as unknown as typeof fetch;
+    const status = (f: typeof fetch) => CHECKERS.gitlab!.check('alice', { fetch: f, env }).then((r) => r.status);
+
+    it('empty users array but group 200 is taken (regression: groups share the namespace)', async () => {
+      expect(await status(gl(() => json([]), code(200)))).toBe('taken');
     });
-    expect(r.status).toBe('unknown');
-  });
-
-  it('hashnode with empty errors array and user null is free', async () => {
-    const r = await CHECKERS.hashnode!.check('alice', {
-      fetch: mk(() => json({ data: { user: null }, errors: [] })) as unknown as typeof fetch,
-      env,
+    it('empty users array and group 404 is free', async () => {
+      expect(await status(gl(() => json([]), code(404)))).toBe('free');
     });
-    expect(r.status).toBe('free');
+    it('non-empty users array is taken', async () => {
+      expect(await status(gl(() => json([{ id: 1 }]), code(404)))).toBe('taken');
+    });
+    it('users 500 is unknown', async () => {
+      expect(await status(gl(code(500), code(404)))).toBe('unknown');
+    });
+    it('groups 403 is unknown', async () => {
+      expect(await status(gl(() => json([]), code(403)))).toBe('unknown');
+    });
+    it('groups 500 is unknown', async () => {
+      expect(await status(gl(() => json([]), code(500)))).toBe('unknown');
+    });
   });
 
-  it('hashnode with errors and no data is unknown', async () => {
-    const r = await CHECKERS.hashnode!.check('alice', { fetch: mk(() => json({ errors: [{}] })) as unknown as typeof fetch, env });
-    expect(r.status).toBe('unknown');
+  it('npm, hashnode and peerlist have no checker', () => {
+    expect(CHECKERS.npm).toBeUndefined();
+    expect(CHECKERS.hashnode).toBeUndefined();
+    expect(CHECKERS.peerlist).toBeUndefined();
   });
 
   it('gitlab 200 with non-array body is unknown', async () => {
-    const r = await CHECKERS.gitlab!.check('alice', { fetch: mk(() => json({ x: 1 })) as unknown as typeof fetch, env });
+    const r = await CHECKERS.gitlab!.check('alice', { fetch: mk((u) => (u.includes('/groups/') ? new Response('', { status: 404 }) : json({ x: 1 }))) as unknown as typeof fetch, env });
     expect(r.status).toBe('unknown');
   });
 

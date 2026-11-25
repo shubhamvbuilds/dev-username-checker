@@ -6,21 +6,17 @@ import { CHECKERS } from './checkers';
 import { fetchWithTimeout } from './http';
 
 // Well-known, long-lived accounts. The owner can swap any that turn out wrong.
-export const TAKEN_NAMES: Record<PlatformId, string> = {
+export const TAKEN_NAMES: Partial<Record<PlatformId, string>> = {
   github: 'torvalds',
   gitlab: 'gitlab',
-  npm: 'npm',
   devto: 'ben',
-  hashnode: 'hashnode',
   bluesky: 'bsky', // resolves bsky.bsky.social
   huggingface: 'huggingface',
   youtube: 'youtube',
   reddit: 'spez',
   hackernews: 'pg',
   producthunt: 'rrhoover',
-  peerlist: 'akash',
   x: 'x',
-  linkedin: 'linkedin', // link-only: never requested
 };
 
 const MAX_CONCURRENCY = 3;
@@ -58,12 +54,13 @@ function invalidNameFor(id: PlatformId): string {
 }
 
 async function proveOne(id: PlatformId, freeName: string, deps: CheckDeps): Promise<ProveEntry> {
-  const takenName = TAKEN_NAMES[id];
+  const takenName = TAKEN_NAMES[id] ?? '';
   const invalidName = invalidNameFor(id);
-  const checker = CHECKERS[id]!;
-  const linkOnly = PLATFORMS[id].method === 'link-only' || id === 'linkedin';
-  const taken = (await checker.check(takenName, deps)).status;
-  const free = (await checker.check(freeName, deps)).status;
+  const checker = CHECKERS[id];
+  const linkOnly = PLATFORMS[id].method === 'link-only';
+  // Link-only platforms are never fetched; they are expected to be unknown.
+  const taken: Status = linkOnly || !checker ? 'unknown' : (await checker.check(takenName, deps)).status;
+  const free: Status = linkOnly || !checker ? 'unknown' : (await checker.check(freeName, deps)).status;
   // Invalid comes from the rules, not a fetch. Link-only platforms are never checked.
   const invalid: Status = linkOnly ? 'unknown' : validateFor(id, invalidName).ok ? 'unknown' : 'invalid';
   const pass = linkOnly
@@ -94,7 +91,7 @@ async function observeX(name: string, f: typeof fetch) {
 }
 
 async function proveX(freeName: string, deps: CheckDeps) {
-  const takenName = TAKEN_NAMES.x;
+  const takenName = TAKEN_NAMES.x!;
   const invalidName = invalidNameFor('x');
   const taken = await observeX(takenName, deps.fetch);
   const free = await observeX(freeName, deps.fetch);
@@ -134,7 +131,7 @@ export async function handleProve(request: Request, env: Env, f: typeof fetch = 
 
   const deps: CheckDeps = { fetch: f, env };
   const freeName = randomFreeName();
-  const ids = (Object.keys(CHECKERS) as PlatformId[]).filter((id) => CHECKERS[id]);
+  const ids = (Object.keys(PLATFORMS) as PlatformId[]).filter((id) => id !== 'x' && PLATFORMS[id].enabled);
   const entries = await mapLimit(ids, MAX_CONCURRENCY, (id) => proveOne(id, freeName, deps));
   const x = await proveX(freeName, deps);
   return Response.json([...entries, x]);

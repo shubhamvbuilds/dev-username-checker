@@ -120,6 +120,12 @@ describe('/api/check', () => {
     expect(f).toHaveBeenCalledTimes(2);
   });
 
+  it.each(['npm', 'hashnode', 'peerlist'])('%s is link-only: unknown "Check it yourself", no fetch', async (id) => {
+    const { lines, f } = await run(`name=alice1&platforms=${id}`);
+    expect(lines[0]).toMatchObject({ platform: id, status: 'unknown', reason: 'Check it yourself', method: 'link-only' });
+    expect(f).not.toHaveBeenCalled();
+  });
+
   it('a throwing checker becomes unknown "Check failed" and is not cached', async () => {
     const orig = CHECKERS.github;
     CHECKERS.github = { id: 'github', check: async () => { throw new Error('boom'); } };
