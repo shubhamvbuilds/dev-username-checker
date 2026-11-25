@@ -5,9 +5,10 @@
   "type": "module",
   "scripts": {
     "test": "vitest run",
-    "predev": "mkdir -p dist/web",
+    "build": "vite build",
+    "predev": "npm run build",
     "dev": "wrangler dev",
-    "predeploy": "mkdir -p dist/web",
+    "predeploy": "npm run build",
     "deploy": "wrangler deploy"
   },
   "devDependencies": {

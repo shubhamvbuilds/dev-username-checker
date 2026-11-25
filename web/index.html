@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Dev Username Checker</title>
+  <meta name="description" content="Check if your username is free on GitHub, X, npm, DEV and more. Free, no signup.">
+  <link rel="stylesheet" href="./styles.css">
+</head>
+<body>
+  <main>
+    <h1>Dev Username Checker</h1>
+    <p class="sub">See where your handle is free across developer platforms.</p>
+    <form id="form" autocomplete="off">
+      <input id="name" name="name" type="text" placeholder="yourname" aria-label="Username" autocapitalize="none" spellcheck="false" required>
+      <button type="submit" id="go">Check</button>
+    </form>
+    <p id="error" class="error" role="alert" hidden></p>
+    <details id="platforms">
+      <summary id="platforms-summary">Platforms</summary>
+      <div id="platform-list"></div>
+    </details>
+    <section id="results" hidden>
+      <div class="results-head">
+        <h2 id="result-name"></h2>
+        <button type="button" id="copy">Copy name</button>
+      </div>
+      <ul id="rows"></ul>
+    </section>
+  </main>
+  <script type="module" src="./main.ts"></script>
+</body>
+</html>

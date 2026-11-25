@@ -31,6 +31,8 @@ export default defineConfig(async () => {
           test: {
             name: 'web',
             environment: 'jsdom',
+            environmentOptions: { jsdom: { url: 'http://localhost/' } },
+            setupFiles: ['./test/web/setup.ts'],
             include: ['test/web/**/*.test.ts'],
           },
         },
