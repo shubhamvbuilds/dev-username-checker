@@ -82,6 +82,7 @@ async function run(raw: string): Promise<void> {
   if (selected.size === 0) { showError('Select at least one platform.'); return; }
   errorEl.hidden = true;
   const my = ++runId;
+  goBtn.disabled = false; // a superseded run no longer owns the button
 
   rowsEl.replaceChildren();
   resultName.textContent = name;
