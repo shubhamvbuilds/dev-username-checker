@@ -143,6 +143,28 @@ describe('/api/check', () => {
     }
   });
 
+  it('disabled platform requested with an invalid name emits no line', async () => {
+    const orig = PLATFORMS.x.enabled;
+    PLATFORMS.x.enabled = false;
+    try {
+      const { lines } = await run('name=shubhamvbuilds12&platforms=x,github');
+      expect(lines.map((l) => l.platform)).toEqual(['github']);
+    } finally {
+      PLATFORMS.x.enabled = orig;
+    }
+  });
+
+  it('prototype keys in platforms are ignored', async () => {
+    const { res, lines } = await run('name=alice1&platforms=constructor,__proto__,github');
+    expect(res.status).toBe(200);
+    expect(lines.map((l) => l.platform)).toEqual(['github']);
+  });
+
+  it('level 2: invalid name with suggestion=1 gets 400, not 503', async () => {
+    const { res } = await run('name=&suggestion=1', mkEnv({ TRAFFIC_LEVEL: '2' }));
+    expect(res.status).toBe(400);
+  });
+
   it('ignores unknown ids; empty param means all enabled', async () => {
     const a = await run('name=alice1&platforms=nope,github');
     expect(a.lines.map((l) => l.platform)).toEqual(['github']);

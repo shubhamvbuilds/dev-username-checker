@@ -11,7 +11,7 @@ const json = (status: number, error: string) =>
 
 function requestedPlatforms(param: string | null): PlatformId[] {
   const enabled = (Object.keys(PLATFORMS) as PlatformId[]).filter((id) => PLATFORMS[id].enabled);
-  const ids = (param ?? '').split(',').map((s) => s.trim()).filter((s): s is PlatformId => s in PLATFORMS);
+  const ids = (param ?? '').split(',').map((s) => s.trim()).filter((s): s is PlatformId => Object.hasOwn(PLATFORMS, s));
   return ids.length ? [...new Set(ids)] : enabled;
 }
 
@@ -24,11 +24,11 @@ async function checkOne(
 ): Promise<CheckResult | null> {
   const meta = PLATFORMS[id];
   const base = { platform: id, name, url: meta.profileUrl(name) };
+  if (!meta.enabled) return null;
   const rules = validateFor(id, name);
   if (!rules.ok) {
     return { ...base, status: 'invalid', reason: rules.rule, method: 'rules', checkedAt: Date.now() };
   }
-  if (!meta.enabled) return null;
 
   try {
     const cached = await getCached(env.DB, id, name, Date.now(), level >= 3 ? 6 : 1).catch(() => null);
@@ -72,11 +72,11 @@ export async function handleCheck(
 
   const params = new URL(request.url).searchParams;
   const level = trafficLevel(env);
-  if (level >= 2 && params.get('suggestion') === '1') return json(503, 'Suggestions paused due to high traffic');
 
   const name = normalizeName(params.get('name') ?? '');
   const searchable = isSearchable(name);
   if (!searchable.ok) return json(400, searchable.error);
+  if (level >= 2 && params.get('suggestion') === '1') return json(503, 'Suggestions paused due to high traffic');
 
   const ids = requestedPlatforms(params.get('platforms'));
   const { readable, writable } = new TransformStream<Uint8Array, Uint8Array>();
