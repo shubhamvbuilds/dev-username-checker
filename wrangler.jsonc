@@ -10,7 +10,7 @@
     {
       "binding": "DB",
       "database_name": "dev-username-checker",
-      "database_id": "65e68a9d-021a-4ad1-b6a7-98a73905cf5e"
+      "database_id": "e64eeafc-8ff4-49b8-9a30-e32404f30f31"
     }
   ],
   // The Workers Rate Limiting binding only supports period 10 or 60 (seconds), so the
