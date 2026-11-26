@@ -50,8 +50,19 @@ describe('isSearchable', () => {
 });
 
 describe('PLATFORMS', () => {
-  it('lists the owner priority first: LinkedIn, GitHub, X, Instagram, YouTube', () => {
-    expect(Object.keys(PLATFORMS).slice(0, 5)).toEqual(['linkedin', 'github', 'x', 'instagram', 'youtube']);
+  it('orders checkable platforms first, check-it-yourself last, owner priority within each', () => {
+    expect(Object.keys(PLATFORMS)).toEqual([
+      // checked reliably
+      'github', 'youtube', 'devto', 'bluesky', 'gitlab', 'huggingface',
+      // checked, but often blocked or never confirms free
+      'hackernews', 'reddit', 'producthunt',
+      // check it yourself
+      'linkedin', 'x', 'instagram', 'npm', 'hashnode', 'peerlist',
+    ]);
+    // No check-it-yourself platform sits above a checked one.
+    const manual = (id: string) => id === 'x' || PLATFORMS[id as keyof typeof PLATFORMS].method === 'link-only';
+    const flags = Object.keys(PLATFORMS).map(manual);
+    expect(flags).toEqual([...flags].sort((a, b) => Number(a) - Number(b)));
     expect(PLATFORMS.instagram.method).toBe('link-only');
   });
 

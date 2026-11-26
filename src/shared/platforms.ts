@@ -1,17 +1,11 @@
 import type { PlatformId, PlatformMeta } from './types';
 
-// Profile and signup URLs. The order of this object is the display order everywhere
-// (owner's priority: LinkedIn, GitHub, X, Instagram, YouTube, then the rest).
+// Profile and signup URLs. The order of this object is the display order everywhere:
+// platforms we can check come first (reliable, then often blocked or never-free),
+// then check-it-yourself ones; within each group, the owner's priority
+// (LinkedIn, GitHub, X, Instagram, YouTube, then the rest).
 // TODO(verify): confirm each profile URL pattern and signup URL against the live site.
 export const PLATFORMS: Record<PlatformId, PlatformMeta> = {
-  linkedin: {
-    id: 'linkedin',
-    label: 'LinkedIn',
-    profileUrl: (n) => `https://www.linkedin.com/in/${n}`,
-    signupUrl: 'https://www.linkedin.com/signup',
-    enabled: true,
-    method: 'link-only',
-  },
   github: {
     id: 'github',
     label: 'GitHub',
@@ -19,24 +13,6 @@ export const PLATFORMS: Record<PlatformId, PlatformMeta> = {
     signupUrl: 'https://github.com/signup',
     enabled: true,
     method: 'api',
-  },
-  x: {
-    id: 'x',
-    label: 'X',
-    profileUrl: (n) => `https://x.com/${n}`,
-    signupUrl: 'https://x.com/i/flow/signup',
-    enabled: true,
-    method: 'page',
-  },
-  instagram: {
-    id: 'instagram',
-    label: 'Instagram',
-    profileUrl: (n) => `https://www.instagram.com/${n}/`,
-    signupUrl: 'https://www.instagram.com/accounts/emailsignup/',
-    enabled: true,
-    // "Profile isn't available" is shown for free names and for banned or deactivated accounts alike,
-    // so a logged-out check can't tell them apart, 2026-11-25
-    method: 'link-only',
   },
   youtube: {
     id: 'youtube',
@@ -103,6 +79,32 @@ export const PLATFORMS: Record<PlatformId, PlatformMeta> = {
     signupUrl: 'https://www.producthunt.com',
     enabled: true,
     method: 'page',
+  },
+  linkedin: {
+    id: 'linkedin',
+    label: 'LinkedIn',
+    profileUrl: (n) => `https://www.linkedin.com/in/${n}`,
+    signupUrl: 'https://www.linkedin.com/signup',
+    enabled: true,
+    method: 'link-only',
+  },
+  x: {
+    id: 'x',
+    label: 'X',
+    profileUrl: (n) => `https://x.com/${n}`,
+    signupUrl: 'https://x.com/i/flow/signup',
+    enabled: true,
+    method: 'page',
+  },
+  instagram: {
+    id: 'instagram',
+    label: 'Instagram',
+    profileUrl: (n) => `https://www.instagram.com/${n}/`,
+    signupUrl: 'https://www.instagram.com/accounts/emailsignup/',
+    enabled: true,
+    // "Profile isn't available" is shown for free names and for banned or deactivated accounts alike,
+    // so a logged-out check can't tell them apart, 2026-11-25
+    method: 'link-only',
   },
   npm: {
     id: 'npm',
