@@ -50,9 +50,14 @@ describe('isSearchable', () => {
 });
 
 describe('PLATFORMS', () => {
-  it('has 14 platforms with urls', () => {
+  it('lists the owner priority first: LinkedIn, GitHub, X, Instagram, YouTube', () => {
+    expect(Object.keys(PLATFORMS).slice(0, 5)).toEqual(['linkedin', 'github', 'x', 'instagram', 'youtube']);
+    expect(PLATFORMS.instagram.method).toBe('link-only');
+  });
+
+  it('has 15 platforms with urls', () => {
     const all = Object.values(PLATFORMS);
-    expect(all).toHaveLength(14);
+    expect(all).toHaveLength(15);
     for (const p of all) {
       expect(p.profileUrl('abc')).toContain('abc');
       expect(p.signupUrl).toMatch(/^https:\/\//);

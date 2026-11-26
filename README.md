@@ -92,6 +92,7 @@ The whole table is pending the owner's `/__prove` run: nothing here is proven ag
 | Product Hunt | Checked, often blocked (shows ⚠️) | |
 | X | Link-only | No reliable unauthenticated check. |
 | LinkedIn | Link-only | Login wall blocks automated checks. |
+| Instagram | Link-only | Free names and banned accounts show the same "Profile isn't available" page. |
 | npm | Link-only | No reliable check for user names. |
 | Hashnode | Link-only | No reliable check for user names. |
 | Peerlist | Link-only | No reliable check for user names. |

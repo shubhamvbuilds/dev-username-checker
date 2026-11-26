@@ -1,6 +1,7 @@
 export type PlatformId =
   | 'github'
   | 'x'
+  | 'instagram'
   | 'youtube'
   | 'devto'
   | 'hashnode'

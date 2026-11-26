@@ -34,20 +34,22 @@ const meterEl = $('meter');
 const summaryLine = $('summary');
 
 const PLATFORM_KEY = 'uc:platforms';
-// Checked platforms first, "check it yourself" platforms last (X has no checker yet, so it sits with them);
-// rows keep this order while results stream in.
-const manual = (id: PlatformId) => Number(id === 'x' || PLATFORMS[id].method === 'link-only');
-const enabledIds = (Object.keys(PLATFORMS) as PlatformId[])
-  .filter((id) => PLATFORMS[id].enabled)
-  .sort((a, b) => manual(a) - manual(b));
+// Display order is the order of PLATFORMS (the owner's priority); rows keep it while results stream in.
+const enabledIds = (Object.keys(PLATFORMS) as PlatformId[]).filter((id) => PLATFORMS[id].enabled);
+
+// Platforms that existed before `known` was stored, so ones added later start selected for returning users.
+const LEGACY_KNOWN = ['github', 'x', 'youtube', 'devto', 'hashnode', 'bluesky', 'npm', 'gitlab', 'huggingface', 'reddit', 'producthunt', 'hackernews', 'peerlist', 'linkedin'];
 
 function loadSelected(): Set<PlatformId> {
   try {
     const raw = localStorage.getItem(PLATFORM_KEY);
     if (raw) {
-      const arr = JSON.parse(raw);
-      if (Array.isArray(arr)) {
-        const s = new Set(enabledIds.filter((id) => arr.includes(id)));
+      const parsed = JSON.parse(raw);
+      // Old format: a plain array of selected ids. New format: { selected, known }.
+      const chosen: unknown = Array.isArray(parsed) ? parsed : parsed?.selected;
+      const known: unknown = Array.isArray(parsed) ? LEGACY_KNOWN : parsed?.known;
+      if (Array.isArray(chosen) && Array.isArray(known)) {
+        const s = new Set(enabledIds.filter((id) => chosen.includes(id) || !known.includes(id)));
         if (s.size) return s;
       }
     }
@@ -58,7 +60,7 @@ function loadSelected(): Set<PlatformId> {
 const selected = loadSelected();
 
 function saveSelected(): void {
-  try { localStorage.setItem(PLATFORM_KEY, JSON.stringify([...selected])); } catch { /* ignore */ }
+  try { localStorage.setItem(PLATFORM_KEY, JSON.stringify({ selected: [...selected], known: enabledIds })); } catch { /* ignore */ }
 }
 
 function updateSummary(): void {
@@ -312,7 +314,14 @@ suggestionList.addEventListener('keydown', (e) => {
   if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); pickSuggestion(e.target); }
 });
 
-showPreview(input.value);
+// Shareable links: /?name=shubhamv opens with that search already running.
+const fromUrl = new URLSearchParams(location.search).get('name');
+if (fromUrl) {
+  input.value = fromUrl;
+  void run(fromUrl);
+} else {
+  showPreview(input.value);
+}
 
 copyBtn.addEventListener('click', async () => {
   const text = resultName.textContent ?? '';

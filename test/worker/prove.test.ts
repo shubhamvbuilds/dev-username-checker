@@ -36,7 +36,7 @@ describe('/__prove', () => {
     expect(Array.isArray(body)).toBe(true);
     const ids = body.map((e) => e.platform).sort();
     expect(ids).toEqual(Object.keys(PLATFORMS).sort());
-    expect(body).toHaveLength(14);
+    expect(body).toHaveLength(15);
     const x = body.find((e) => e.platform === 'x')!;
     expect(x.method).toBe('plain-fetch');
     const gh = body.find((e) => e.platform === 'github')!;

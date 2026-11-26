@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { PLATFORMS } from '../../src/shared/platforms';
 import type { CheckResult, PlatformId } from '../../src/shared/types';
@@ -31,6 +31,49 @@ describe('main search orchestration', () => {
     input.value = 'cachedname';
     form.dispatchEvent(new Event('submit', { cancelable: true }));
     expect(go.disabled).toBe(false);
+  });
+});
+
+describe('shareable link', () => {
+  beforeEach(() => {
+    vi.resetModules();
+    localStorage.clear();
+    const html = readFileSync('web/index.html', 'utf8');
+    document.body.innerHTML = /<body>([\s\S]*)<\/body>/.exec(html)![1].replace(/<script[\s\S]*?<\/script>/, '');
+  });
+  afterEach(() => { history.replaceState(null, '', '/'); });
+
+  it('/?name=alpha pre-fills the field and runs the search', async () => {
+    history.replaceState(null, '', '/?name=alpha');
+    const f = vi.fn(() => new Promise(() => {}));
+    vi.stubGlobal('fetch', f);
+    await import('../../web/main');
+    expect((document.getElementById('name') as HTMLInputElement).value).toBe('alpha');
+    expect(String((f.mock.calls[0] as unknown[])[0])).toContain('name=alpha');
+  });
+});
+
+describe('saved platform selection', () => {
+  beforeEach(() => {
+    vi.resetModules();
+    localStorage.clear();
+    const html = readFileSync('web/index.html', 'utf8');
+    document.body.innerHTML = /<body>([\s\S]*)<\/body>/.exec(html)![1].replace(/<script[\s\S]*?<\/script>/, '');
+  });
+  const checked = () => [...document.querySelectorAll<HTMLInputElement>('#platform-list input')].filter((i) => i.checked).length;
+
+  it('an old saved selection keeps its choices and turns on platforms added since (Instagram)', async () => {
+    localStorage.setItem('uc:platforms', JSON.stringify(['github']));
+    await import('../../web/main');
+    const rows = [...document.querySelectorAll<HTMLElement>('#rows li')].map((r) => r.dataset.platform);
+    expect(rows).toEqual(['github', 'instagram']);
+  });
+
+  it('a new-format selection respects platforms the user turned off', async () => {
+    const all = (Object.keys(PLATFORMS) as PlatformId[]);
+    localStorage.setItem('uc:platforms', JSON.stringify({ selected: ['github'], known: all }));
+    await import('../../web/main');
+    expect(checked()).toBe(1);
   });
 });
 

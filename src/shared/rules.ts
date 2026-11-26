@@ -62,6 +62,8 @@ export const RULES: Record<PlatformId, Rule> = {
   hackernews: { min: 2, max: 15, pattern: /^[a-z0-9_-]+$/, describe: '2 to 15 characters: letters, digits, _ -' },
   // TODO(verify): https://peerlist.io/signup
   peerlist: { min: 3, max: 30, pattern: /^[a-z0-9_-]+$/, describe: '3 to 30 characters: letters, digits, _ -' },
+  // https://help.instagram.com (usernames: up to 30 characters, letters, numbers, periods, underscores)
+  instagram: { min: 1, max: 30, pattern: /^[a-z0-9._]+$/, describe: 'Up to 30 characters: letters, digits, periods, underscores' },
   // TODO(verify): https://www.linkedin.com/help/linkedin/answer/a542685 (custom URL: 3 to 100, letters and digits)
   linkedin: { min: 3, max: 100, pattern: /^[a-z0-9-]+$/, describe: '3 to 100 characters: letters, digits, hyphen' },
 };

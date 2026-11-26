@@ -391,6 +391,6 @@ kbd {
   .panel-head { padding: 16px 16px 12px; }
   .meter { padding: 0 16px 12px; }
   .row { padding: 8px 16px; grid-template-columns: 18px minmax(0, 1fr); row-gap: 6px; }
-  .act { grid-column: 2; }
+  .act { grid-column: 2; flex-wrap: wrap; row-gap: 8px; }
   .foot { padding: 16px; flex-direction: column; gap: 4px; }
 }
